@@ -33,7 +33,7 @@ This document contains the product specification. For detailed implementation pr
 
 ## 1. Executive Summary
 
-AI Copilot Wallet is a natural language wallet assistant delivered as a Telegram bot that enables users to interact with the Sui blockchain through conversational commands and voice input. The system operates on a "remote control" architecture where the Telegram bot serves as an intelligent command interpreter while all cryptographic signing operations occur in an external wallet application (Slush or any Sui-compatible wallet).
+Caishen is a natural language wallet assistant delivered as a Telegram bot that enables users to interact with the Sui blockchain through conversational commands and voice input. The system operates on a "remote control" architecture where the Telegram bot serves as an intelligent command interpreter while all cryptographic signing operations occur in an external wallet application (Slush or any Sui-compatible wallet).
 
 This architecture deliberately positions the Telegram bot as a non-custodial interface layer. The bot never handles private keys, seed phrases, or signing operations directly. Instead, it functions as an AI-powered transaction builder that generates deep links, QR codes, and transaction previews which users then confirm and sign in their sovereign wallet application.
 

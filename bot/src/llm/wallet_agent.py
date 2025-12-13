@@ -20,9 +20,10 @@ class WalletAgent:
   """
 
   def __init__(self, model_name: str = "gemini-2.0-flash-exp"):
+    api_key = settings.GOOGLE_AI_API_KEY or getattr(settings, "GOOGLE_API_KEY", None)
     self.llm = ChatGoogleGenerativeAI(
       model=model_name,
-      api_key=settings.GOOGLE_AI_API_KEY,
+      google_api_key=api_key,
       temperature=0.3,
     )
     self.domain_classifier = self.llm.with_structured_output(DomainDecision)
