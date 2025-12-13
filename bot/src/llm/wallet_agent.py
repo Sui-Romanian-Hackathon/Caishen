@@ -190,15 +190,11 @@ CRITICAL RULES:
         keyword_domain = keyword_classify(user_input)
 
         try:
-            if hasattr(self.domain_classifier, "ainvoke"):
-                decision = await self.domain_classifier.ainvoke(
-                    [("system", prompt), ("human", user_input)],
-                )
-            else:
-                decision = await asyncio.to_thread(
-                    self.domain_classifier.invoke,
-                    [("system", prompt), ("human", user_input)],
-                )
+            # Run synchronously inside a thread to avoid event-loop init errors from the SDK
+            decision = await asyncio.to_thread(
+                self.domain_classifier.invoke,
+                [("system", prompt), ("human", user_input)],
+            )
 
             # If LLM says conversation but keywords say otherwise, trust keywords
             if decision.domain == Domain.conversation and keyword_domain is not None:
@@ -288,15 +284,11 @@ For history: optionally extract limit (number of transactions).
 ALWAYS call a tool - don't respond with just text."""
 
         try:
-            if hasattr(llm_with_tools, "ainvoke"):
-                ai_msg = await llm_with_tools.ainvoke(
-                    [("system", system_msg), ("human", f"User request: {user_input}")]
-                )
-            else:
-                ai_msg = await asyncio.to_thread(
-                    llm_with_tools.invoke,
-                    [("system", system_msg), ("human", f"User request: {user_input}")],
-                )
+            # Run synchronously inside a thread to avoid event-loop init errors from the SDK
+            ai_msg = await asyncio.to_thread(
+                llm_with_tools.invoke,
+                [("system", system_msg), ("human", f"User request: {user_input}")],
+            )
 
             if getattr(ai_msg, "tool_calls", None):
                 call = ai_msg.tool_calls[0]
