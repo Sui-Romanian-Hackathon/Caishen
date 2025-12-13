@@ -191,7 +191,7 @@ async def get_nfts(wallet_address: str, limit: int = 10) -> str:
 @tool
 def get_help() -> str:
   """
-  Show help information.
+  Show help information about available commands.
   Call when user asks: 'help', 'what can you do', 'commands', 'how do I'.
   """
   return """💡 Here's what I can do:
@@ -201,9 +201,10 @@ def get_help() -> str:
 👥 Contacts: "show contacts" or "add alice as 0x..."
 🧾 History: "show my transactions"
 🖼️ NFTs: "show my NFTs"
-🔄 Reset: "reset" or "clear history"
+🔄 Reset: "reset" or "clear history" to start fresh
 
-Just chat naturally - I'll understand!"""
+Just chat naturally - I understand normal language!
+Or use commands like /balance, /send, /contacts, /history"""
 
 
 # ============================================================================
@@ -242,8 +243,8 @@ DOMAIN_TOOLS: Dict[Domain, List] = {
   Domain.contacts: [list_contacts, add_new_contact, delete_contact],
   Domain.history: [get_transaction_history],
   Domain.nfts: [get_nfts],
-  Domain.help: [get_help],
-  Domain.conversation: [],
+  Domain.help: [get_help, reset_conversation],  # Reset is part of help/utility
+  Domain.conversation: [],  # No tools - pure chat
 }
 
 TOOL_REGISTRY = {tool.name: tool for tool in ALL_TOOLS}
