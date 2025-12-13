@@ -21,6 +21,30 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Keyword-based fallback classification
+# ============================================================================
+
+KEYWORD_TO_DOMAIN = {
+    Domain.balance: ["balance", "how much sui", "how much do i have", "check wallet", "my funds", "wallet balance", "show balance"],
+    Domain.payments: ["send", "transfer", "pay", "give sui"],
+    Domain.contacts: ["contacts", "contact", "address book", "add contact", "delete contact", "remove contact", "save address", "show contacts", "my contacts"],
+    Domain.history: ["history", "transactions", "recent", "activity", "what did i send", "what did i receive", "show history", "transaction history"],
+    Domain.nfts: ["nft", "nfts", "collectibles", "digital art", "show nft", "my nft"],
+    Domain.help: ["help", "commands", "what can you do", "how do i", "reset", "clear history", "start over", "start", "connect", "link wallet"],
+}
+
+
+def keyword_classify(user_input: str) -> Optional[Domain]:
+    """Fallback keyword-based classification"""
+    text_lower = user_input.lower()
+    for domain, keywords in KEYWORD_TO_DOMAIN.items():
+        for keyword in keywords:
+            if keyword in text_lower:
+                return domain
+    return None
+
+
+# ============================================================================
 # State Definition
 # ============================================================================
 
@@ -66,21 +90,33 @@ class WalletGraphAgent:
         self,
         model_name: Optional[str] = None,
         google_api_key: Optional[str] = None,
+        llm: Optional[Any] = None,
+        chat_llm: Optional[Any] = None,
+        domain_tools: Optional[Dict[Domain, List[Any]]] = None,
+        tool_registry: Optional[Dict[str, Any]] = None,
     ) -> None:
         api_key = google_api_key or settings.GOOGLE_AI_API_KEY or getattr(settings, "GOOGLE_API_KEY", None)
         model = model_name or getattr(settings, "GEMINI_MODEL", None) or "gemini-2.0-flash"
 
-        self.llm = ChatGoogleGenerativeAI(
+        # Allow injection for tests
+        self.llm = llm or ChatGoogleGenerativeAI(
             model=model,
             google_api_key=api_key,
             temperature=0.3,
         )
-        self.chat_llm = ChatGoogleGenerativeAI(
+        self.chat_llm = chat_llm or ChatGoogleGenerativeAI(
             model=model,
             google_api_key=api_key,
             temperature=0.7,  # Higher for more natural conversation
         )
-        self.domain_classifier = self.llm.with_structured_output(DomainDecision)
+        # Structured output classifier
+        if hasattr(self.llm, "with_structured_output"):
+            self.domain_classifier = self.llm.with_structured_output(DomainDecision)
+        else:
+            self.domain_classifier = self.llm
+
+        self.domain_tools = domain_tools or DOMAIN_TOOLS
+        self.tool_registry = tool_registry or TOOL_REGISTRY
 
         # Build the graph
         self.app = self._build_graph()
@@ -126,43 +162,72 @@ class WalletGraphAgent:
         user_input = state["user_input"]
         has_wallet = bool(state.get("wallet_address"))
 
-        prompt = f"""Classify this user message into exactly ONE domain.
+        prompt = f"""Classify this user message into exactly ONE domain. PREFER ACTION DOMAINS over conversation.
 
-Domains:
-- payments: User wants to SEND/TRANSFER/PAY coins (keywords: send, transfer, pay, give)
-- balance: User wants to CHECK BALANCE (keywords: balance, how much, funds, wallet balance)
-- contacts: User wants to MANAGE ADDRESS BOOK (keywords: contacts, add contact, save address, delete contact, remove contact)
-- history: User wants to SEE TRANSACTIONS (keywords: history, transactions, recent, activity)
-- nfts: User wants to SEE NFTs (keywords: NFT, collectibles, digital art)
-- help: User wants HELP, INFO, or RESET (keywords: help, commands, what can you do, how do I, reset, clear history, start over, forget)
-- conversation: General chat, greetings, questions NOT about wallet actions (hello, hi, thanks, how are you, what is sui, explain blockchain, good morning)
+Domains (in order of priority):
+1. balance: ANY mention of balance, funds, how much SUI, check wallet, my wallet (keywords: balance, how much, funds, wallet, check)
+2. payments: ANY mention of sending/transferring (keywords: send, transfer, pay, give, move)
+3. contacts: ANY mention of contacts or address book (keywords: contact, contacts, address book, save address, add, delete, remove)
+4. history: ANY mention of transactions or history (keywords: history, transactions, recent, activity, sent, received)
+5. nfts: ANY mention of NFTs (keywords: NFT, NFTs, collectibles, digital art)
+6. help: User wants help, commands, or reset (keywords: help, commands, what can you do, how, reset, clear, start over)
+7. conversation: ONLY for pure greetings or off-topic chat (hello, hi, thanks, good morning, how are you, what is blockchain)
 
 User has linked wallet: {has_wallet}
 
-IMPORTANT:
-- If the message is a greeting, thank you, or general question → "conversation"
-- If asking about crypto/blockchain concepts (not actions) → "conversation"
-- Only use action domains for actual wallet ACTIONS
-- For "conversation" domain, set requires_wallet=False
+CRITICAL RULES:
+- If message contains "balance", "history", "contacts", "send", "transfer", "NFT" → USE THAT DOMAIN, not conversation
+- "show my balance" → balance (NOT conversation)
+- "show my history" → history (NOT conversation)
+- "show my contacts" → contacts (NOT conversation)
+- "send 1 SUI to alice" → payments (NOT conversation)
+- "what can you do" → help (NOT conversation)
+- ONLY use "conversation" for pure greetings like "hello" or "hi" or completely unrelated topics
+- Set requires_wallet=True for: balance, payments, history, nfts
+- Set requires_wallet=False for: contacts, help, conversation
 """
-        try:
-            decision = await asyncio.to_thread(
-                self.domain_classifier.invoke,
-                [("system", prompt), ("human", user_input)],
-            )
-            state["domain"] = decision.domain
-            state["domain_confidence"] = decision.confidence
-            state["domain_reason"] = decision.reason
-            state["requires_wallet"] = decision.requires_wallet
+        # First, try keyword-based classification as a fast check
+        keyword_domain = keyword_classify(user_input)
 
-            logger.info(f"Classified: {decision.domain} (conf={decision.confidence:.2f}): {decision.reason}")
+        try:
+            if hasattr(self.domain_classifier, "ainvoke"):
+                decision = await self.domain_classifier.ainvoke(
+                    [("system", prompt), ("human", user_input)],
+                )
+            else:
+                decision = await asyncio.to_thread(
+                    self.domain_classifier.invoke,
+                    [("system", prompt), ("human", user_input)],
+                )
+
+            # If LLM says conversation but keywords say otherwise, trust keywords
+            if decision.domain == Domain.conversation and keyword_domain is not None:
+                logger.info(f"LLM said conversation, but keywords detected {keyword_domain} - using keywords")
+                state["domain"] = keyword_domain
+                state["domain_confidence"] = 0.8
+                state["domain_reason"] = f"Keyword match for {keyword_domain.value}"
+                state["requires_wallet"] = keyword_domain in [Domain.balance, Domain.payments, Domain.history, Domain.nfts]
+            else:
+                state["domain"] = decision.domain
+                state["domain_confidence"] = decision.confidence
+                state["domain_reason"] = decision.reason
+                state["requires_wallet"] = decision.requires_wallet
+
+            logger.info(f"Classified: {state['domain']} (conf={state['domain_confidence']:.2f}): {state['domain_reason']}")
 
         except Exception as e:
             logger.error(f"Domain classification failed: {e}")
-            state["domain"] = Domain.conversation
-            state["domain_confidence"] = 0.5
-            state["domain_reason"] = "Classification error, defaulting to conversation"
-            state["requires_wallet"] = False
+            # Use keyword fallback on error
+            if keyword_domain:
+                state["domain"] = keyword_domain
+                state["domain_confidence"] = 0.7
+                state["domain_reason"] = f"Keyword fallback: {keyword_domain.value}"
+                state["requires_wallet"] = keyword_domain in [Domain.balance, Domain.payments, Domain.history, Domain.nfts]
+            else:
+                state["domain"] = Domain.conversation
+                state["domain_confidence"] = 0.5
+                state["domain_reason"] = "Classification error, defaulting to conversation"
+                state["requires_wallet"] = False
 
         return state
 
@@ -176,7 +241,13 @@ IMPORTANT:
 
         if requires_wallet and not wallet_address and domain in wallet_required_domains:
             state["error"] = "no_wallet"
-            state["result"] = "❌ No wallet linked yet. Use /start to connect your wallet first."
+            action_name = {
+                Domain.balance: "check your balance",
+                Domain.payments: "send SUI",
+                Domain.history: "view transaction history",
+                Domain.nfts: "view your NFTs",
+            }.get(domain, "do that")
+            state["result"] = f"❌ No wallet linked. Use /start to connect your Sui wallet first to {action_name}."
 
         return state
 
@@ -186,7 +257,7 @@ IMPORTANT:
             return "no_wallet_error"
 
         domain = state.get("domain", Domain.conversation)
-        domain_tools = DOMAIN_TOOLS.get(domain, [])
+        domain_tools = self.domain_tools.get(domain, [])
 
         if domain_tools:
             return "needs_tool"
@@ -198,7 +269,7 @@ IMPORTANT:
         domain = state.get("domain", Domain.conversation)
         user_input = state["user_input"]
 
-        domain_tools = DOMAIN_TOOLS.get(domain, [])
+        domain_tools = self.domain_tools.get(domain, [])
 
         if not domain_tools:
             state["tool_name"] = None
@@ -217,10 +288,15 @@ For history: optionally extract limit (number of transactions).
 ALWAYS call a tool - don't respond with just text."""
 
         try:
-            ai_msg = await asyncio.to_thread(
-                llm_with_tools.invoke,
-                [("system", system_msg), ("human", f"User request: {user_input}")],
-            )
+            if hasattr(llm_with_tools, "ainvoke"):
+                ai_msg = await llm_with_tools.ainvoke(
+                    [("system", system_msg), ("human", f"User request: {user_input}")]
+                )
+            else:
+                ai_msg = await asyncio.to_thread(
+                    llm_with_tools.invoke,
+                    [("system", system_msg), ("human", f"User request: {user_input}")],
+                )
 
             if getattr(ai_msg, "tool_calls", None):
                 call = ai_msg.tool_calls[0]
@@ -251,7 +327,7 @@ ALWAYS call a tool - don't respond with just text."""
                 state["result"] = "No action could be determined."
             return state
 
-        tool = TOOL_REGISTRY.get(tool_name)
+        tool = self.tool_registry.get(tool_name)
         if not tool:
             state["result"] = f"❌ Unknown action: {tool_name}"
             return state
@@ -274,10 +350,14 @@ ALWAYS call a tool - don't respond with just text."""
         # Execute tool
         try:
             func = tool.func if hasattr(tool, 'func') else tool
-            if asyncio.iscoroutinefunction(func):
+            if hasattr(tool, "ainvoke"):
                 result = await tool.ainvoke(tool_args)
-            else:
+            elif asyncio.iscoroutinefunction(func):
+                result = await func(**tool_args)
+            elif hasattr(tool, "invoke"):
                 result = await asyncio.to_thread(tool.invoke, tool_args)
+            else:
+                result = await asyncio.to_thread(func, **tool_args)
 
             # Handle dict results (send_sui returns signing data)
             if isinstance(result, dict):
@@ -375,10 +455,11 @@ Keep responses short - this is a chat interface, not a document."""
             result = final_state.get("result", "I'm not sure how to help with that.")
             needs_signing = final_state.get("needs_signing", False)
             tx_data = final_state.get("tx_data")
+            tool_name = final_state.get("tool_name")
 
             return {
                 "text": result,
-                "action": domain.value if domain != Domain.conversation else None,
+                "action": tool_name or (domain.value if domain != Domain.conversation else None),
                 "needs_signing": needs_signing,
                 "tx_data": tx_data,
             }

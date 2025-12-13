@@ -117,6 +117,8 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 
 ## Phase 2: NLP & Intelligence (Sprint 3-4)
 
+> Update: LangGraph wallet agent now binds the production tool set (`get_balance`, `send_sui`, contacts, history, NFTs, help/reset) and forwards signing payloads to the router (`needs_signing` + `tx_data`), replacing the previous stub/demo tools.
+
 ### 2.1 Gemini Integration (Python google-genai)
 
 | Checkpoint | Status | Dependencies | Acceptance Criteria |

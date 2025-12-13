@@ -192,19 +192,19 @@ async def get_nfts(wallet_address: str, limit: int = 10) -> str:
 def get_help() -> str:
   """
   Show help information about available commands.
-  Call when user asks: 'help', 'what can you do', 'commands', 'how do I'.
+  Call when user asks: 'help', 'what can you do', 'commands', 'how do I', 'start', 'connect'.
   """
   return """💡 Here's what I can do:
 
-💰 Balance: "what's my balance?" or "check wallet"
-✉️ Send: "send 1 SUI to alice" or "transfer 0.5 to 0x..."
-👥 Contacts: "show contacts" or "add alice as 0x..."
-🧾 History: "show my transactions"
+🔗 Connect: Use /start to link your Sui wallet
+💰 Balance: "what's my balance?" or /balance
+✉️ Send: "send 1 SUI to alice" or /send
+👥 Contacts: "show contacts" or /contacts
+🧾 History: "show my transactions" or /history
 🖼️ NFTs: "show my NFTs"
-🔄 Reset: "reset" or "clear history" to start fresh
+🔄 Reset: "reset" to clear conversation
 
-Just chat naturally - I understand normal language!
-Or use commands like /balance, /send, /contacts, /history"""
+Just chat naturally - I understand!"""
 
 
 # ============================================================================

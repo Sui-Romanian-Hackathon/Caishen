@@ -349,7 +349,7 @@ async def command_send_handler(message: Message) -> None:
     # Create pending transaction and show signing link
     # For now, just show the transaction details
     webapp_url = settings.WEBAPP_URL
-    tx_url = f"{webapp_url}?mode=wallet&recipient={recipient}&amount={amount}&sender={wallet_address}"
+    tx_url = f"{webapp_url}/send-funds?recipient={recipient}&amount={amount}&sender={wallet_address}"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✍️ Sign & Send", url=tx_url)],
@@ -421,7 +421,7 @@ async def handle_action_callback(callback: CallbackQuery) -> None:
         if result.get("needs_signing") and result.get("tx_data"):
             tx = result["tx_data"]
             webapp_url = settings.WEBAPP_URL
-            tx_url = f"{webapp_url}?mode=wallet&recipient={tx['recipient']}&amount={tx['amount']}&sender={tx['sender']}"
+            tx_url = f"{webapp_url}/send-funds?recipient={tx['recipient']}&amount={tx['amount']}&sender={tx['sender']}"
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✍️ Sign & Send", url=tx_url)],
             ])
@@ -500,7 +500,7 @@ async def process_with_agent(
         if result.get("needs_signing") and result.get("tx_data"):
             tx = result["tx_data"]
             webapp_url = settings.WEBAPP_URL
-            tx_url = f"{webapp_url}?mode=wallet&recipient={tx['recipient']}&amount={tx['amount']}&sender={tx['sender']}"
+            tx_url = f"{webapp_url}/send-funds?recipient={tx['recipient']}&amount={tx['amount']}&sender={tx['sender']}"
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✍️ Sign & Send", url=tx_url)],
             ])
