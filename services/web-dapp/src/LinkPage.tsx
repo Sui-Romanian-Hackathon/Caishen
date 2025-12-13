@@ -122,6 +122,13 @@ export function LinkPage() {
         // Clear hash
         window.history.replaceState({}, '', window.location.pathname + window.location.search);
       }
+    } else if (hash.includes('error=')) {
+      const errorMatch = hash.match(/error=([^&]+)/);
+      const descMatch = hash.match(/error_description=([^&]+)/);
+      const description = descMatch?.[1] ? decodeURIComponent(descMatch[1]) : '';
+      setError(`OAuth error: ${decodeURIComponent(errorMatch?.[1] || 'unknown')}${description ? ` - ${description}` : ''}`);
+      setStep('error');
+      window.history.replaceState({}, '', window.location.pathname + window.location.search);
     }
   }, []);
 
@@ -200,7 +207,7 @@ export function LinkPage() {
       }));
 
       // Build OAuth URL - redirect back to this page
-      const redirectUri = `${window.location.origin}/link?token=${token}`;
+      const redirectUri = `${window.location.origin}${window.location.pathname}?token=${token}`;
       const params = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
         redirect_uri: redirectUri,
@@ -209,6 +216,7 @@ export function LinkPage() {
         nonce: nonce
       });
 
+      setStatus('Redirecting to Google...');
       window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start zkLogin');
@@ -290,6 +298,7 @@ export function LinkPage() {
     if (!token) return;
 
     setStatus('Verifying your Telegram account...');
+    setError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/api/link/${token}/telegram-verify`, {
         method: 'POST',
@@ -297,23 +306,48 @@ export function LinkPage() {
         body: JSON.stringify(authData)
       });
 
+      const data = await res.json().catch(() => null);
+
       if (!res.ok) {
-        // Fallback: consider verification successful if backend unavailable
-        setSession(prev => prev ? { ...prev, status: 'completed' } : null);
-        setStep('completed');
+        const message = data?.error
+          ? `Verification failed: ${data.error}`
+          : 'Verification failed. Please return to Telegram and try again.';
+        setError(message);
+        setStep('error');
         setStatus(null);
         return;
       }
 
-      setSession(prev => prev ? { ...prev, status: 'completed' } : null);
+      setSession(prev => prev ? {
+        ...prev,
+        status: 'completed',
+        walletAddress: data?.walletAddress || prev.walletAddress,
+        walletType: data?.walletType || prev.walletType
+      } : null);
       setStep('completed');
       setStatus(null);
     } catch (err) {
-      // Fallback success on errors to avoid blocking users
-      setSession(prev => prev ? { ...prev, status: 'completed' } : null);
-      setStep('completed');
+      setError(err instanceof Error ? err.message : 'Verification failed. Please try again.');
       setStatus(null);
+      setStep('error');
     }
+  };
+
+  // Reset local flow so user can start over without leaving the page
+  const resetLinkingFlow = () => {
+    setError(null);
+    setStatus(null);
+    setZkAddress(null);
+    setZkSalt(null);
+    setZkSub(null);
+    sessionStorage.removeItem('zklogin_link');
+    setSession(prev => prev ? {
+      ...prev,
+      status: 'pending_wallet',
+      walletAddress: null,
+      walletType: null
+    } : prev);
+    setStep('choose_wallet');
   };
 
   // Render based on step
@@ -340,9 +374,14 @@ export function LinkPage() {
           <div className="step-card error-card">
             <h2>Error</h2>
             <p>{error}</p>
-            <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}`} className="btn">
-              Return to Telegram
-            </a>
+            <div className="actions">
+              <button className="btn" onClick={resetLinkingFlow}>
+                Try Again
+              </button>
+              <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=reset`} className="btn">
+                Get a Fresh Link in Telegram
+              </a>
+            </div>
           </div>
         )}
 
@@ -430,9 +469,17 @@ export function LinkPage() {
               </div>
             )}
 
-            <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}`} className="btn btn-primary">
-              Return to Telegram Bot
-            </a>
+            <div className="actions">
+              <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=linked`} className="btn btn-primary">
+                Return to Telegram Bot
+              </a>
+              <button className="btn" onClick={resetLinkingFlow}>
+                Connect Different Wallet
+              </button>
+              <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=reset`} className="btn">
+                Get a New Linking URL
+              </a>
+            </div>
           </div>
         )}
       </main>

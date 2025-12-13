@@ -18,7 +18,7 @@ import {
   jwtToAddress
 } from '@mysten/sui/zklogin';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LinkPage } from './LinkPage';
 import './app-layout.css';
@@ -69,11 +69,25 @@ function Page() {
   const [pendingTxExpiry, setPendingTxExpiry] = useState<number | null>(null);
 
   // Form state
-  const [form, setForm] = useState({ recipient: '', amount: '', memo: '' });
+  const [form, setForm] = useState(() => {
+    const url = new URL(window.location.href);
+    return {
+      recipient: url.searchParams.get('recipient') || '',
+      amount: url.searchParams.get('amount') || '',
+      memo: url.searchParams.get('memo') || ''
+    };
+  });
   const [status, setStatus] = useState<string | null>(null);
   const [digest, setDigest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'wallet' | 'zklogin'>('wallet');
+  const [mode, setMode] = useState<'wallet' | 'zklogin'>(() => {
+    const url = new URL(window.location.href);
+    return url.searchParams.get('mode') === 'zklogin' ? 'zklogin' : 'wallet';
+  });
+  const [senderParam] = useState(() => {
+    const url = new URL(window.location.href);
+    return url.searchParams.get('sender') || '';
+  });
 
   // zkLogin state
   const [jwtToken, setJwtToken] = useState(() => {
@@ -257,15 +271,19 @@ function Page() {
   // Clean URL - remove all sensitive params (transaction details now come from API)
   useEffect(() => {
     const url = new URL(window.location.href);
-    // Remove all params except mode for manual usage
-    url.searchParams.delete('recipient');
-    url.searchParams.delete('amount');
-    url.searchParams.delete('memo');
-    url.searchParams.delete('jwt');
-    url.searchParams.delete('salt');
-    url.searchParams.delete('prover');
-    url.searchParams.delete('saltService');
-    url.searchParams.delete('tx'); // Already processed
+    const paramsToStrip = [
+      'recipient',
+      'amount',
+      'memo',
+      'jwt',
+      'salt',
+      'prover',
+      'saltService',
+      'tx',
+      'sender',
+      'mode'
+    ];
+    paramsToStrip.forEach((key) => url.searchParams.delete(key));
     if (url.search !== window.location.search) {
       window.history.replaceState({}, '', url.toString());
     }
@@ -279,6 +297,12 @@ function Page() {
 
     if (!account?.address) {
       setError('Connect a wallet first.');
+      return;
+    }
+
+    if (senderParam && account.address.toLowerCase() !== senderParam.toLowerCase()) {
+      setError('Connected wallet does not match sender provided in the link.');
+      setStatus(null);
       return;
     }
 
@@ -360,6 +384,11 @@ function Page() {
       // 2) Derive zkLogin address
       const zkAddr = jwtToAddress(jwtToken, saltValue);
       setZkAddress(zkAddr);
+      if (senderParam && zkAddr.toLowerCase() !== senderParam.toLowerCase()) {
+        setZkError('Derived zkLogin address does not match sender provided in the link.');
+        setZkStatus(null);
+        return;
+      }
 
       // 3) Use stored ephemeral key from OAuth flow, or generate new one
       let eph = ephemeralKeypair;
@@ -484,6 +513,18 @@ function Page() {
               zkLogin
             </button>
           </div>
+
+          {senderParam && (
+            <div className="info">
+              <div><strong>Sender (from link):</strong> <code>{senderParam}</code></div>
+              {account?.address && account.address.toLowerCase() !== senderParam.toLowerCase() && (
+                <div className="status error">Connected wallet differs from the sender specified in this link.</div>
+              )}
+              {account?.address && account.address.toLowerCase() === senderParam.toLowerCase() && (
+                <div className="status ok">Connected wallet matches the sender in this link.</div>
+              )}
+            </div>
+          )}
 
           {mode === 'wallet' ? (
             <form className="form" onSubmit={onSubmit}>

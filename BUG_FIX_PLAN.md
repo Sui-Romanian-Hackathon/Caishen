@@ -1,7 +1,7 @@
 # Bug Fix Plan - AI Copilot Wallet
 
 > **Created:** December 13, 2025
-> **Status:** Planning Phase
+> **Status:** Completed (All 7 fixes implemented)
 > **Spec Reference:** [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md), [AI_Copilot_Wallet_Product_Specification_with_zklogin_microservices.md](./AI_Copilot_Wallet_Product_Specification_with_zklogin_microservices.md)
 
 ---
@@ -66,11 +66,13 @@ The URL cleaning effect runs before the form can read the parameters for the dir
    - Show "Sending from: 0x..." when sender param is present
    - Validate that connected wallet matches sender if using wallet mode
 
+**Status:** Completed in `services/web-dapp/src/App.tsx`
+
 ### Acceptance Criteria
-- [ ] Clicking link with `?recipient=0x...&amount=1.5&sender=0x...` pre-fills form
-- [ ] Mode param (`?mode=wallet` or `?mode=zklogin`) sets correct tab
-- [ ] Sender address is displayed in the UI
-- [ ] URL is cleaned after initial read (no sensitive data in history)
+- [x] Clicking link with `?recipient=0x...&amount=1.5&sender=0x...` pre-fills form
+- [x] Mode param (`?mode=wallet` or `?mode=zklogin`) sets correct tab
+- [x] Sender address is displayed in the UI
+- [x] URL is cleaned after initial read (no sensitive data in history)
 
 ### Testing
 ```bash
@@ -147,11 +149,13 @@ The zkLogin flow currently only uses the user's Slush/Sui wallet. When clicking 
    - Authorized redirect URIs: `https://caishen.iseethereaper.com/link`
 
 ### Acceptance Criteria
-- [ ] "Continue with Google" button redirects to Google OAuth
-- [ ] After Google sign-in, user is redirected back with JWT
-- [ ] zkLogin address is derived from JWT + salt
-- [ ] zkLogin wallet is linked to Telegram account
-- [ ] Clear error messages for OAuth failures
+- [x] "Continue with Google" button redirects to Google OAuth
+- [x] After Google sign-in, user is redirected back with JWT
+- [x] zkLogin address is derived from JWT + salt
+- [x] zkLogin wallet is linked to Telegram account
+- [x] Clear error messages for OAuth failures
+
+**Status:** Completed in `services/web-dapp/src/LinkPage.tsx`
 
 ### Testing
 1. Click "Continue with Google" from LinkPage
@@ -315,12 +319,14 @@ The bot's API endpoint `/api/link/:token/telegram-verify` should:
    ```
 
 ### Acceptance Criteria
-- [ ] POST /api/link/:token/telegram-verify validates HMAC hash
-- [ ] Telegram ID in auth data matches session's telegram_id
-- [ ] Wallet is linked in database after verification
-- [ ] User receives confirmation message in Telegram
-- [ ] Page shows "completed" state immediately after verification
-- [ ] Deep link to return to Telegram bot works
+- [x] POST /api/link/:token/telegram-verify validates HMAC hash
+- [x] Telegram ID in auth data matches session's telegram_id
+- [x] Wallet is linked in database after verification
+- [x] User receives confirmation message in Telegram
+- [x] Page shows "completed" state immediately after verification
+- [x] Deep link to return to Telegram bot works
+
+**Status:** Completed in `bot/src/bot/bot.py` and `services/web-dapp/src/LinkPage.tsx`
 
 ### Testing
 1. Start /start flow in Telegram
@@ -439,11 +445,13 @@ Callback queries pass `callback.message` which is the bot's message (the one wit
    ```
 
 ### Acceptance Criteria
-- [ ] Balance button fetches and shows actual balance
-- [ ] Contacts button shows actual contact list
-- [ ] History button shows actual transaction history
-- [ ] All buttons work for the correct user (callback.from_user)
-- [ ] Proper error handling for no wallet linked
+- [x] Balance button fetches and shows actual balance
+- [x] Contacts button shows actual contact list
+- [x] History button shows actual transaction history
+- [x] All buttons work for the correct user (callback.from_user)
+- [x] Proper error handling for no wallet linked
+
+**Status:** Completed in `bot/src/bot/handlers/router.py`
 
 ### Testing
 1. Start bot, link wallet
@@ -591,11 +599,13 @@ Conversation history is not being stored or passed to the Gemini service.
    ```
 
 ### Acceptance Criteria
-- [ ] User messages are stored in database
-- [ ] Assistant responses are stored in database
-- [ ] Last 20 messages are passed to Gemini
-- [ ] Gemini uses context from previous messages
-- [ ] History can be cleared with /reset command
+- [x] User messages are stored in database
+- [x] Assistant responses are stored in database
+- [x] Last 20 messages are passed to Gemini
+- [x] Gemini uses context from previous messages
+- [x] History can be cleared with /reset command
+
+**Status:** Completed in `bot/src/database/postgres.py` and `bot/src/bot/handlers/router.py`
 
 ### Testing
 ```
@@ -661,10 +671,12 @@ No /reset handler exists in `router.py`.
    ```
 
 ### Acceptance Criteria
-- [ ] /reset command clears conversation history
-- [ ] User receives confirmation message
-- [ ] /help shows /reset command
-- [ ] Next messages don't have old context
+- [x] /reset command clears conversation history
+- [x] User receives confirmation message
+- [x] /help shows /reset command
+- [x] Next messages don't have old context
+
+**Status:** Completed in `bot/src/bot/handlers/router.py`
 
 ### Testing
 1. Have a conversation with the bot
@@ -742,10 +754,12 @@ This would require building a web chat UI with the LLM, which doesn't currently 
    ```
 
 ### Acceptance Criteria
-- [ ] Error state has "Try Again" button
-- [ ] Completed state has "Connect Different Wallet" option
-- [ ] Reset clears local state
-- [ ] User can start linking flow again
+- [x] Error state has "Try Again" button
+- [x] Completed state has "Connect Different Wallet" option
+- [x] Reset clears local state
+- [x] User can start linking flow again
+
+**Status:** Completed in `services/web-dapp/src/LinkPage.tsx`
 
 ---
 

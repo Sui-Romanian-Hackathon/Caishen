@@ -94,7 +94,9 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | `/settings` command handler | `[ ]` | Webhook | Shows user settings |
 | Message routing logic | `[x]` | Handlers | Text/voice routed correctly |
 | Callback query handling | `[x]` | Bot API | Inline buttons work |
+| Inline buttons return live data | `[x]` | Callback query handling | Balance/contacts/history buttons use user context and backend data |
 | Error handling | `[x]` | Routing | Errors don't crash bot |
+| `/reset` command | `[x]` | Conversation history | Clears stored chat context and confirms to user |
 | Rate limiting (per user) | `[ ]` | Database | 30 req/min enforced |
 
 ### 1.3 Sui RPC Integration (Python httpx)
@@ -128,7 +130,7 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | Context injection | `[x]` | Function calling | Wallet address in system prompt |
 | Audio transcription | `[x]` | Gemini multimodal | Gemini transcribes voice messages |
 | System prompt defined | `[x]` | Gemini | Wallet assistant guardrails |
-| Conversation history | `[ ]` | Context | Multi-turn works |
+| Conversation history | `[x]` | Context | Multi-turn works |
 | Error recovery prompts | `[~]` | History | Graceful error messages |
 
 ### 2.2 Tool Handlers Implementation
@@ -262,9 +264,11 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | **/start generates linking URL** | `[x]` | Telegram Bot | URL with secure token |
 | **Web-dapp linking page** | `[x]` | React | Step-by-step wallet connection |
 | **Wallet choice UI** | `[x]` | dapp-kit | zkLogin OR Slush wallet |
+| **Linking UI reset actions** | `[x]` | React | Try-again and new-link options in error/completed states |
 | **Telegram Login Widget** | `[x]` | telegram.org | HMAC-SHA256 verified |
 | **Server-side hash verification** | `[x]` | crypto | Prevents spoofing |
 | **Telegram ID matching** | `[x]` | Linking store | Must match /start initiator |
+| **Telegram verification callback** | `[x]` | Bot API | `/api/link/:token/telegram-verify` validates HMAC, completes link, and notifies user |
 | **Rate limiting** | `[x]` | Express | 20 req/min per IP |
 | One-time token consumption | `[x]` | Linking store | Prevents replay |
 
@@ -279,6 +283,7 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 7. Wallet linked to Telegram account ✅
 
 > Latest: Linking sessions, wallet type (zkLogin/Slush/external), and zkLogin salt/sub are now persisted in Postgres and exposed via the bot’s aiohttp API (`/api/link/:token`, `/api/link/:token/wallet`, `/api/link/:token/complete`). The web dapp falls back to a local session if the API is unreachable, so users can still link. Telegram reply/edit paths are hardened against “chat not found” errors.
+> Telegram verification now enforces the Login Widget HMAC, matches the initiating Telegram ID, and sends a confirmation DM after linking.
 ```
 
 ### 3.2 zkLogin Implementation (Using External Mysten Labs APIs)
@@ -289,7 +294,9 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | Randomness generation | `[x]` | Crypto | 128-bit random value |
 | Nonce generation | `[x]` | Ephemeral keys | Valid nonce created |
 | OAuth URL construction | `[x]` | Nonce | Redirect URL works |
+| OAuth redirect preserves linking path | `[x]` | Google OAuth | Redirect returns to specific /link/<handle>?token=... |
 | Google OAuth integration | `[x]` | OAuth URL | JWT returned via hash |
+| OAuth error handling | `[x]` | OAuth URL | Hash errors parsed and shown to user |
 | JWT decoding & validation | `[x]` | OAuth | Claims extracted (sub, aud) |
 | External salt service call | `[x]` | salt.api.mystenlabs.com | Salt retrieved |
 | External prover call (dev) | `[~]` | prover-dev.mystenlabs.com | Used for tx signing |
@@ -354,6 +361,7 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | **Bot creates pending tx** | `[x]` | /send command | Returns secure URL with tx ID only |
 | **Web-dapp fetches tx details** | `[x]` | Fetch API | Loads recipient/amount from API |
 | Deep link parsing | `[x]` | React | Extracts tx ID from URL |
+| URL param autofill (manual wallet link) | `[x]` | Link parsing | Query params hydrate recipient/amount/memo/sender then are cleaned from URL |
 | Transaction preview page | `[x]` | React | Shows tx details from API |
 | Human-readable tx display | `[x]` | Preview | Clear recipient/amount |
 | Risk warnings display | `[x]` | Preview | Shows for large amounts (>100 SUI) |

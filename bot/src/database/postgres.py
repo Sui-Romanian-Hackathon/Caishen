@@ -93,6 +93,21 @@ async def _create_tables():
             )
         """)
 
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_history (
+                id SERIAL PRIMARY KEY,
+                telegram_id VARCHAR(64) NOT NULL,
+                role VARCHAR(16) NOT NULL, -- 'user' or 'assistant'
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_convhist_telegram
+            ON conversation_history(telegram_id, created_at DESC)
+        """)
+
         logger.info("Database tables verified/created")
 
 
@@ -218,6 +233,40 @@ async def resolve_contact(telegram_id: str, alias: str) -> Optional[str]:
             telegram_id, alias
         )
         return row['address'] if row else None
+
+
+async def get_conversation_history(telegram_id: str, limit: int = 20) -> List[Dict[str, str]]:
+    """Get recent conversation history in chronological order"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT role, content as text
+            FROM conversation_history
+            WHERE telegram_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+        """, telegram_id, limit)
+    return [dict(row) for row in reversed(rows)]
+
+
+async def add_to_conversation(telegram_id: str, role: str, content: str):
+    """Persist a message in the conversation history"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO conversation_history (telegram_id, role, content)
+            VALUES ($1, $2, $3)
+        """, telegram_id, role, content)
+
+
+async def clear_conversation_history(telegram_id: str):
+    """Clear all stored conversation history for a user"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM conversation_history WHERE telegram_id = $1",
+            telegram_id
+        )
 
 
 # Linking session functions

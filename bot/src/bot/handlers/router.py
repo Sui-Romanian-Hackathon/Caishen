@@ -24,6 +24,9 @@ from src.database.postgres import (
     resolve_contact,
     create_linking_session,
     get_linking_session,
+    get_conversation_history,
+    add_to_conversation,
+    clear_conversation_history,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,11 +134,26 @@ async def command_help_handler(message: Message) -> None:
         "/send &lt;amount&gt; &lt;address&gt; - Send SUI\n"
         "/contacts - List saved contacts\n"
         "/contacts add &lt;name&gt; &lt;address&gt; - Add a contact\n"
-        "/history - Recent transactions\n\n"
+        "/history - Recent transactions\n"
+        "/reset - Clear conversation history\n\n"
         "<b>Or just chat naturally:</b>\n"
         '"What\'s my balance?"\n'
         '"Send 1 SUI to alice"\n'
         '"Show my transaction history"',
+        reply_markup=get_main_menu(),
+    )
+
+
+@router.message(Command("reset"))
+async def command_reset_handler(message: Message) -> None:
+    """Handle /reset command - clear conversation history"""
+    user_id = str(message.from_user.id)
+
+    await clear_conversation_history(user_id)
+
+    await safe_answer(
+        message,
+        "🧹 Conversation history cleared.\n\nI've forgotten our previous chat. How can I help you?",
         reply_markup=get_main_menu(),
     )
 
@@ -359,28 +377,103 @@ async def callback_help(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "action_balance")
 async def callback_balance(callback: CallbackQuery) -> None:
     await callback.answer()
-    # Create a fake message to reuse the handler
-    await command_balance_handler(callback.message)
+    user_id = str(callback.from_user.id)
+    wallet_address = await get_user_wallet(user_id)
+
+    if not wallet_address:
+        await callback.message.answer(
+            "❌ No wallet linked yet.\n\nUse /start to connect your wallet first.",
+            reply_markup=get_main_menu(),
+        )
+        return
+
+    status_msg = await callback.message.answer("⏳ Fetching balance...")
+    try:
+        balance = await sui_service.get_all_balances(wallet_address)
+
+        text = (
+            f"💰 <b>Wallet Balance</b>\n\n"
+            f"<code>{wallet_address}</code>\n\n"
+            f"<b>SUI:</b> {balance['sui']['formatted']}\n"
+        )
+
+        if balance['tokens']:
+            text += "\n<b>Other Tokens:</b>\n"
+            for token in balance['tokens'][:5]:
+                text += f"• {token['symbol']}: {token['totalBalance']}\n"
+
+        await safe_edit(status_msg, text, reply_markup=get_main_menu())
+    except Exception as e:
+        logger.error(f"Balance fetch failed (callback): {e}")
+        await safe_edit(
+            status_msg,
+            "❌ Failed to fetch balance. Please try again later.",
+            reply_markup=get_main_menu(),
+        )
 
 
 @router.callback_query(F.data == "action_contacts")
 async def callback_contacts(callback: CallbackQuery) -> None:
     await callback.answer()
-    await safe_answer(callback.message,
-        "👥 <b>Contacts</b>\n\n"
-        "Type /contacts to list all contacts\n"
-        "Type <code>/contacts add name address</code> to add one",
-        reply_markup=get_main_menu(),
-    )
+    user_id = str(callback.from_user.id)
+
+    contacts = await get_contacts(user_id)
+
+    if not contacts:
+        await safe_answer(
+            callback.message,
+            "📭 No contacts saved yet.\n\nAdd one with:\n<code>/contacts add alice 0x123...</code>",
+            reply_markup=get_main_menu(),
+        )
+        return
+
+    text = "👥 <b>Your Contacts</b>\n\n"
+    for c in contacts:
+        text += f"• <b>{c['alias']}</b>: <code>{c['address'][:10]}...{c['address'][-6:]}</code>\n"
+
+    await safe_answer(callback.message, text, reply_markup=get_main_menu())
 
 
 @router.callback_query(F.data == "action_history")
 async def callback_history(callback: CallbackQuery) -> None:
     await callback.answer()
-    await safe_answer(callback.message,
-        "Type /history to see your recent transactions.",
-        reply_markup=get_main_menu(),
-    )
+    user_id = str(callback.from_user.id)
+    wallet_address = await get_user_wallet(user_id)
+
+    if not wallet_address:
+        await safe_answer(
+            callback.message,
+            "❌ No wallet linked yet.\n\nUse /start to connect your wallet first.",
+            reply_markup=get_main_menu(),
+        )
+        return
+
+    status_msg = await callback.message.answer("⏳ Fetching transaction history...")
+    try:
+        history = await sui_service.get_transaction_history(wallet_address, limit=5)
+
+        if not history['items']:
+            await safe_edit(status_msg, "📭 No transactions found yet.", reply_markup=get_main_menu())
+            return
+
+        text = "🧾 <b>Recent Transactions</b>\n\n"
+        for tx in history['items']:
+            ts = datetime.fromtimestamp(tx['timestampMs'] / 1000).strftime('%m/%d %H:%M') if tx.get('timestampMs') else '?'
+            icon = "📤" if tx.get('kind') == 'sent' else "📥"
+            status_icon = "✅" if tx.get('status') == 'success' else "❌"
+            digest = tx.get('digest', '')
+            digest_short = f"{digest[:6]}...{digest[-4:]}" if digest else "tx"
+            explorer_url = tx.get('explorerUrl', '')
+            text += f"{icon} {ts} {status_icon} <a href=\"{explorer_url}\">{digest_short}</a>\n"
+
+        await safe_edit(status_msg, text, disable_web_page_preview=True, reply_markup=get_main_menu())
+    except Exception as e:
+        logger.error(f"History fetch failed (callback): {e}")
+        await safe_edit(
+            status_msg,
+            "❌ Failed to fetch history. Please try again later.",
+            reply_markup=get_main_menu(),
+        )
 
 
 @router.callback_query(F.data == "action_send_prompt")
@@ -469,22 +562,29 @@ async def process_text_message(
 
     # Get wallet address
     wallet_address = await get_user_wallet(user_id)
+    history = await get_conversation_history(user_id, limit=20)
 
     try:
+        # Persist user message first
+        await add_to_conversation(user_id, "user", text)
+
         # Get AI response
         response = await gemini_service.chat(
             message=text,
             wallet_address=wallet_address,
+            history=history,
         )
 
         # Handle function calls
         if response.get("function_call"):
             fc = response["function_call"]
             await handle_function_call(message, fc, wallet_address, status_msg)
+            await add_to_conversation(user_id, "assistant", f"[Called {fc.get('name')}]")
             return
 
         # Send text response
         reply_text = response.get("text", "I'm not sure how to help with that.")
+        await add_to_conversation(user_id, "assistant", reply_text)
 
         if status_msg:
             await safe_edit(status_msg, reply_text)

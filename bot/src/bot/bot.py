@@ -1,5 +1,7 @@
 """AI Copilot Wallet - Telegram Bot Entry Point"""
 
+import hashlib
+import hmac
 import logging
 import sys
 
@@ -18,7 +20,6 @@ from src.database.postgres import (
     get_linking_session,
     set_linking_wallet,
     complete_linking_session,
-    link_wallet,
 )
 
 # Configure logging
@@ -99,6 +100,24 @@ def main() -> None:
     # REST endpoints for web-dapp linking
     # ------------------------------------------------------------------ #
 
+    def verify_telegram_auth(auth_payload: dict, provided_hash: str) -> bool:
+        """Verify Telegram Login Widget payload using HMAC-SHA256."""
+        if not provided_hash:
+            return False
+
+        try:
+            data_check_string = "\n".join(
+                f"{k}={auth_payload[k]}"
+                for k in sorted(auth_payload.keys())
+                if auth_payload[k] is not None
+            )
+            secret_key = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
+            computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+            return hmac.compare_digest(computed_hash, provided_hash)
+        except Exception as exc:
+            logger.error("Failed to verify Telegram auth: %s", exc)
+            return False
+
     def serialize_session(session: dict) -> dict:
         """Convert DB session (with datetimes) into JSON-safe dict."""
         out = dict(session)
@@ -108,6 +127,18 @@ def main() -> None:
         if "created_at" in out and hasattr(out["created_at"], "timestamp"):
             out["createdAt"] = int(out["created_at"].timestamp() * 1000)
             del out["created_at"]
+        if "telegram_username" in out:
+            out["telegramUsername"] = out.pop("telegram_username")
+        if "telegram_first_name" in out:
+            out["telegramFirstName"] = out.pop("telegram_first_name")
+        if "wallet_address" in out:
+            out["walletAddress"] = out.pop("wallet_address")
+        if "wallet_type" in out:
+            out["walletType"] = out.pop("wallet_type")
+        if "zklogin_salt" in out:
+            out["zkLoginSalt"] = out.pop("zklogin_salt")
+        if "zklogin_sub" in out:
+            out["zkLoginSub"] = out.pop("zklogin_sub")
         return out
 
     async def handle_get_link(request: web.Request) -> web.Response:
@@ -154,15 +185,50 @@ def main() -> None:
         if not session:
             return web.json_response({"error": "not_found"}, status=404)
 
-        body = await request.json()
-        telegram_id = str(body.get("id"))
-        # Optional: basic identity match
-        if telegram_id and session.get("telegram_id") and telegram_id != session["telegram_id"]:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+
+        auth_payload = dict(body)
+        provided_hash = auth_payload.pop("hash", None)
+        telegram_id = auth_payload.get("id")
+        telegram_id = str(telegram_id) if telegram_id is not None else None
+
+        if not telegram_id:
+            return web.json_response({"error": "telegram_id_required"}, status=400)
+
+        if not verify_telegram_auth(auth_payload, provided_hash):
+            return web.json_response({"error": "invalid_telegram_auth"}, status=401)
+
+        if session.get("telegram_id") and telegram_id != str(session["telegram_id"]):
             return web.json_response({"error": "telegram_id_mismatch"}, status=400)
 
-        # Complete linking (persists wallet link)
-        await complete_linking_session(token)
-        return web.json_response({"status": "ok"})
+        completed_session = await complete_linking_session(token)
+        if not completed_session:
+            return web.json_response({"error": "complete_failed"}, status=400)
+
+        wallet_address = completed_session.get("wallet_address")
+
+        try:
+            if wallet_address:
+                await bot.send_message(
+                    telegram_id,
+                    (
+                        "✅ Wallet linked!\n\n"
+                        f"<b>Wallet:</b> <code>{wallet_address}</code>\n"
+                        "You can now use /balance, /send, and /history."
+                    ),
+                )
+        except Exception as exc:
+            logger.warning("Failed to notify user %s of linking: %s", telegram_id, exc)
+
+        return web.json_response({
+            "status": "completed",
+            "walletAddress": wallet_address,
+            "walletType": completed_session.get("wallet_type"),
+            "telegramId": telegram_id,
+        })
 
     async def handle_complete(request: web.Request) -> web.Response:
         token = request.match_info.get("token")
