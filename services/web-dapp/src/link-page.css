@@ -1,0 +1,222 @@
+.link-page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 24px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.link-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.link-header h1 {
+  margin: 0 0 12px;
+  font-size: 28px;
+}
+
+.link-header .welcome {
+  color: var(--muted);
+  margin: 0;
+}
+
+.link-header .username {
+  color: var(--accent);
+}
+
+.link-content {
+  flex: 1;
+}
+
+.step-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.step-card h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.step-card .subtitle {
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+
+.wallet-options {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.wallet-option {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.wallet-option h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.wallet-option p {
+  color: var(--muted);
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.btn {
+  display: inline-block;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  color: #0a0d14;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3);
+}
+
+.loading {
+  text-align: center;
+  padding: 24px;
+  color: var(--accent);
+}
+
+.status {
+  text-align: center;
+  padding: 12px;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.error {
+  text-align: center;
+  padding: 12px;
+  color: #f87171;
+  font-size: 14px;
+}
+
+.error-card {
+  border-color: rgba(248, 113, 113, 0.3);
+  background: rgba(248, 113, 113, 0.05);
+}
+
+.success-card {
+  text-align: center;
+  border-color: rgba(74, 222, 128, 0.3);
+  background: rgba(74, 222, 128, 0.05);
+}
+
+.success-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.address-preview {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 16px;
+  border-radius: 8px;
+  margin-top: 16px;
+  text-align: center;
+}
+
+.address-preview strong {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.address-preview code {
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.wallet-connected {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(74, 222, 128, 0.1);
+  border-radius: 8px;
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+
+.wallet-connected .check {
+  color: var(--accent);
+}
+
+.wallet-connected code {
+  font-size: 12px;
+}
+
+.telegram-widget {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+  min-height: 60px;
+}
+
+.security-note {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 24px;
+}
+
+.final-details {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+  text-align: left;
+}
+
+.final-details div {
+  margin: 8px 0;
+}
+
+.final-details code {
+  font-size: 11px;
+}
+
+.link-footer {
+  text-align: center;
+  padding: 24px 0;
+  color: var(--muted);
+  font-size: 12px;
+}

@@ -1,0 +1,112 @@
+version: '3.8'
+
+# =============================================================================
+# AI Copilot Wallet - Docker Compose (Python Bot + PostgreSQL)
+# =============================================================================
+# nginx on the VPS should proxy 443 -> telegram-bot:3001
+# =============================================================================
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-copilot-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-caishen}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-copilot_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-caishen_wallet}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-caishen} -d ${POSTGRES_DB:-caishen_wallet}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-copilot-network
+    mem_limit: 256m
+    mem_reservation: 128m
+
+  # Python Telegram Bot (aiogram)
+  telegram-bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    container_name: ai-copilot-telegram-bot
+    ports:
+      - '3001:3001'
+    environment:
+      # Telegram
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
+      - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL}
+      - PORT=3001
+      - WEBHOOK_PATH=/webhook
+      # AI
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
+      # Database
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-caishen}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-caishen_wallet}
+      # Sui Network
+      - SUI_RPC_URL=${SUI_RPC_URL:-https://fullnode.testnet.sui.io:443}
+      - SUI_NETWORK=${SUI_NETWORK:-testnet}
+      # Web App
+      - WEBAPP_URL=${WEBAPP_URL:-https://caishen.iseethereaper.com}
+      # zkLogin
+      - ZKLOGIN_SALT_SERVICE_URL=${ZKLOGIN_SALT_SERVICE_URL}
+      - ZKLOGIN_PROVER_URL=${ZKLOGIN_PROVER_URL}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      # Smart Contracts
+      - SMART_CONTRACT_PACKAGE_ID=${SMART_CONTRACT_PACKAGE_ID}
+      - CONTACT_REGISTRY_ID=${CONTACT_REGISTRY_ID}
+    volumes:
+      - ./bot:/app
+      - bot_files:/app/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ai-copilot-network
+    mem_limit: 512m
+    mem_reservation: 256m
+
+  # Web dApp (for wallet linking and tx signing)
+  web-dapp:
+    image: node:20-slim
+    container_name: ai-copilot-web-dapp
+    working_dir: /app
+    ports:
+      - '5173:5173'
+    environment:
+      - VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - VITE_ZKLOGIN_PROVER_URL=${ZKLOGIN_PROVER_URL}
+      - VITE_ZKLOGIN_SALT_SERVICE_URL=${ZKLOGIN_SALT_SERVICE_URL}
+      - VITE_SUI_NETWORK=${SUI_NETWORK:-testnet}
+      - VITE_API_BASE_URL=${WEBAPP_URL:-https://caishen.iseethereaper.com}
+      - VITE_TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-Caishen_Sui_Bot}
+    volumes:
+      - ./services/web-dapp:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    restart: unless-stopped
+    networks:
+      - ai-copilot-network
+    mem_limit: 512m
+    mem_reservation: 256m
+
+volumes:
+  postgres_data:
+    driver: local
+  bot_files:
+    driver: local
+
+networks:
+  ai-copilot-network:
+    driver: bridge

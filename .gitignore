@@ -1,0 +1,23 @@
+node_modules
+dist
+.env
+.DS_Store
+npm-debug.log*
+yarn-error.log*
+services/*/node_modules
+services/*/dist
+# Web dApp build output (track authored assets, ignore generated artifacts only)
+services/web-dapp/out/*.map
+
+# SSL certificates (never commit private keys!)
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key
+
+data/
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+services/web-dapp/out/assets/*
