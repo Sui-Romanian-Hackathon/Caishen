@@ -8,6 +8,7 @@ Flow:
 import asyncio
 import inspect
 import logging
+import re
 from typing import Any, Dict, List, Optional, TypedDict, Literal
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -295,19 +296,95 @@ ALWAYS call a tool - don't respond with just text."""
                 state["tool_name"] = call["name"]
                 state["tool_args"] = call.get("args", {})
                 logger.info(f"Selected tool: {call['name']} with args: {call.get('args', {})}")
-            else:
-                state["tool_name"] = None
-                state["tool_args"] = {}
-                state["result"] = f"I understood you want help with {domain.value}, but I couldn't determine the specific action. Please try again."
 
         except Exception as e:
             logger.error(f"Tool selection failed: {e}")
-            state["tool_name"] = None
-            state["tool_args"] = {}
-            state["error"] = str(e)
-            state["result"] = f"❌ Error selecting action: {e}"
+
+        # Fallback: deterministic selection if LLM did not pick a tool
+        if not state.get("tool_name"):
+            fallback_tool, fallback_args, fallback_msg = self._fallback_tool_selection(domain, user_input)
+            if fallback_tool:
+                state["tool_name"] = fallback_tool
+                state["tool_args"] = fallback_args
+                logger.info(f"Fallback-selected tool: {fallback_tool} with args: {fallback_args}")
+            else:
+                state["tool_name"] = None
+                state["tool_args"] = {}
+                state["result"] = fallback_msg or f"I understood you want help with {domain.value}, but I couldn't determine the specific action. Please try again."
 
         return state
+
+    def _fallback_tool_selection(self, domain: Domain, user_input: str) -> tuple[Optional[str], Dict[str, Any], Optional[str]]:
+        """
+        Deterministic tool selection when LLM tool-calling fails.
+        Returns (tool_name, tool_args, error_msg)
+        """
+        text = user_input.lower()
+        args: Dict[str, Any] = {}
+
+        def first_number(s: str) -> Optional[float]:
+            match = re.search(r"([0-9]+(?:\.[0-9]+)?)", s)
+            return float(match.group(1)) if match else None
+
+        def find_address(s: str) -> Optional[str]:
+            m = re.search(r"(0x[a-fA-F0-9]{40,64})", s)
+            return m.group(1) if m else None
+
+        if domain == Domain.balance:
+            return "get_balance", args, None
+
+        if domain == Domain.history:
+            limit = first_number(text)
+            if limit:
+                args["limit"] = int(limit)
+            return "get_transaction_history", args, None
+
+        if domain == Domain.nfts:
+            limit = first_number(text)
+            if limit:
+                args["limit"] = int(limit)
+            return "get_nfts", args, None
+
+        if domain == Domain.help:
+            if "reset" in text or "clear" in text:
+                return "reset_conversation", args, None
+            return "get_help", args, None
+
+        if domain == Domain.contacts:
+            if "delete" in text or "remove" in text:
+                name_match = re.search(r"(?:delete|remove)\s+([a-zA-Z0-9_\-]+)", user_input, re.IGNORECASE)
+                if name_match:
+                    args["name"] = name_match.group(1)
+                    return "delete_contact", args, None
+                return None, {}, "Please tell me which contact to remove."
+            if "add" in text or "save" in text:
+                address = find_address(user_input)
+                name_match = re.search(r"(?:add|save)\s+([a-zA-Z0-9_\-]+)", user_input, re.IGNORECASE)
+                if address and name_match:
+                    args["name"] = name_match.group(1)
+                    args["address"] = address
+                    return "add_new_contact", args, None
+                return None, {}, "To add a contact, say: add alice 0x123..."
+            return "list_contacts", args, None
+
+        if domain == Domain.payments:
+            amount = first_number(user_input)
+            recipient = find_address(user_input)
+            if not recipient:
+                # try word after 'to'
+                to_match = re.search(r"to\s+([a-zA-Z0-9_\-]+)", user_input, re.IGNORECASE)
+                if to_match:
+                    recipient = to_match.group(1)
+            if amount is None or amount <= 0:
+                return None, {}, "Please provide an amount to send, e.g., 'send 1 SUI to alice'."
+            if not recipient:
+                return None, {}, "Please provide a recipient (0x address or contact name)."
+            args["amount"] = amount
+            args["recipient"] = recipient
+            return "send_sui", args, None
+
+        # conversation or unknown
+        return None, {}, None
 
     async def _run_tool(self, state: AgentState) -> AgentState:
         """Node: Execute the selected tool"""
