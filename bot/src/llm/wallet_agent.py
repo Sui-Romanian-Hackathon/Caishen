@@ -3,6 +3,7 @@ import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional, TypedDict
 
+import asyncio
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph
@@ -122,11 +123,12 @@ class WalletGraphAgent:
       "contacts (contact list management), wallet (balances or general wallet info), "
       "fallback (not wallet related)."
     )
-    decision = await self.domain_classifier.ainvoke(
+    decision = await asyncio.to_thread(
+      self.domain_classifier.invoke,
       [
         ("system", prompt),
         ("human", state["user_input"]),
-      ]
+      ],
     )
     state["domain"] = decision.domain
     state["domain_reason"] = decision.reason
@@ -146,11 +148,12 @@ class WalletGraphAgent:
       "You are a wallet routing assistant. Choose exactly one tool and provide "
       "arguments extracted from the user's text. Prefer addresses or contact names as recipients."
     )
-    ai_msg = await llm_with_tools.ainvoke(
+    ai_msg = await asyncio.to_thread(
+      llm_with_tools.invoke,
       [
         ("system", system_msg),
         ("human", f"User ID: {state.get('user_id','unknown')}. Request: {state['user_input']}"),
-      ]
+      ],
     )
 
     if not getattr(ai_msg, "tool_calls", None):
