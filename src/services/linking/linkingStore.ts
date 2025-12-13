@@ -18,29 +18,65 @@ export interface LinkingSession {
   status: 'pending_wallet' | 'pending_telegram_confirm' | 'completed' | 'expired';
 }
 
-// In-memory store with automatic expiration
-const store = new Map<string, LinkingSession>();
+// ============================================================================
+// IN-MEMORY STORAGE
+// ============================================================================
+// Design Decision: Using Map for O(1) lookups
+// Trade-off: Lost on restart, but acceptable for hackathon scope
+// ============================================================================
 
-// Also index by telegram ID for lookup
+const store = new Map<string, LinkingSession>();
 const byTelegramId = new Map<string, string>(); // telegramId -> token
 
-// Clean up expired sessions every minute
-setInterval(() => {
-  const now = Date.now();
-  let cleaned = 0;
-  for (const [token, session] of store) {
-    if (session.expiresAt < now) {
-      store.delete(token);
-      if (session.telegramId) {
+// Cleanup configuration
+const CLEANUP_INTERVAL_MS = 60_000; // 1 minute
+let cleanupTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Start the automatic cleanup timer
+ * Removes expired sessions every minute
+ */
+export function startCleanupTimer(): void {
+  if (cleanupTimer) return;
+
+  cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [token, session] of store) {
+      if (session.expiresAt < now) {
+        store.delete(token);
         byTelegramId.delete(session.telegramId);
+        cleaned++;
       }
-      cleaned++;
     }
+
+    if (cleaned > 0) {
+      logger.debug({ cleaned }, 'Cleaned expired linking sessions');
+    }
+  }, CLEANUP_INTERVAL_MS);
+}
+
+/**
+ * Stop the cleanup timer (for testing)
+ */
+export function stopCleanupTimer(): void {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
   }
-  if (cleaned > 0) {
-    logger.debug({ cleaned }, 'Cleaned expired linking sessions');
-  }
-}, 60_000);
+}
+
+/**
+ * Clear all sessions (for testing)
+ */
+export function clearAllSessions(): void {
+  store.clear();
+  byTelegramId.clear();
+}
+
+// Start cleanup on module load
+startCleanupTimer();
 
 /**
  * Create a new linking session for a Telegram user

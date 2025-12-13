@@ -9,7 +9,13 @@
     "check": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:coverage": "vitest run --coverage",
+    "test:all": "vitest run && echo '✅ All tests passed!'",
+    "regression": "./scripts/regression-check.sh"
   },
   "repository": {
     "type": "git",
@@ -42,6 +48,7 @@
     "@types/node": "^24.10.2",
     "@types/pg": "^8.16.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.0"
   }
 }
