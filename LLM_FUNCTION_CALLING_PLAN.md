@@ -18,7 +18,7 @@
 
 ---
 
-## Implementation Status (implemented)
+## Implementation Status (implemented with LangGraph demo agent)
 
 ### Phase 1: Domain Classification System ✅
 
@@ -276,7 +276,7 @@ TOOL_REGISTRY = {tool.name: tool for tool in ALL_TOOLS}
 
 ### Phase 3: Wallet Agent with Domain Routing ✅
 
-**Implemented:** `bot/src/llm/wallet_agent.py`
+**Implemented (LangGraph-based):** `bot/src/llm/wallet_agent.py`
 
 ```python
 import inspect
@@ -693,9 +693,17 @@ bot/src/
 
 ```txt
 # requirements.txt additions
-langchain-core>=0.1.0
-langchain-google-genai>=1.0.0
+langchain-core==0.2.28
+langchain-google-genai==1.0.6
+langgraph==0.2.22
 # pydantic>=2.0.0 (already present in repo)
+
+## Compatibility Notes
+
+- The current `wallet_agent.py` uses the LangGraph demo tools (send_sui_coins/get_nfts/get_contacts/get_balance) and returns simple text; it does **not** yet call the production Sui/contacts tooling or emit signing links.
+- Router still expects `{text, action, needs_signing, tx_data}`; if you need signing-link generation, extend the LangGraph tools to mirror the production tool set and set `needs_signing/tx_data` accordingly.
+- `ChatGoogleGenerativeAI` now pulls `google_api_key` from settings; ensure `GOOGLE_AI_API_KEY` (or `GOOGLE_API_KEY`) is set in the environment.
+- LangGraph is required at runtime; rebuild the bot container after these changes.
 ```
 
 ---
