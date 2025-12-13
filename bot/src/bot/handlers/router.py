@@ -134,7 +134,7 @@ async def command_start_handler(message: Message) -> None:
 async def command_help_handler(message: Message) -> None:
     """Handle /help command"""
     await safe_answer(
-        message,
+        message.text,
         "<b>Commands:</b>\n"
         "/start - Connect your wallet\n"
         "/connect &lt;address&gt; - Manually link a wallet\n"
