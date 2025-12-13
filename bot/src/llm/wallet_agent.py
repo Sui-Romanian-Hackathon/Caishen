@@ -402,7 +402,7 @@ ALWAYS call a tool - don't respond with just text."""
             return state
 
         # Auto-inject context (user_id, wallet_address) if needed
-        # Also replace empty/falsy values that LLM may have passed
+        # ALWAYS override these with correct values - LLM may hallucinate addresses
         context = {
             "user_id": state.get("user_id"),
             "wallet_address": state.get("wallet_address"),
@@ -413,11 +413,15 @@ ALWAYS call a tool - don't respond with just text."""
             sig = inspect.signature(func)
             for param in sig.parameters:
                 if param in context and context[param] is not None:
-                    # Inject if missing OR if LLM passed empty/falsy value
-                    if param not in tool_args or not tool_args.get(param):
-                        tool_args[param] = context[param]
+                    # ALWAYS use context value for user_id and wallet_address
+                    # LLM may hallucinate or pass malformed values
+                    if param in tool_args and tool_args[param] != context[param]:
+                        logger.debug(f"Overriding LLM-provided {param}={tool_args[param]} with context value")
+                    tool_args[param] = context[param]
         except Exception as e:
             logger.warning(f"Could not inspect tool signature: {e}")
+
+        logger.debug(f"Final tool_args for {tool_name}: {tool_args}")
 
         # Check if wallet_address is required but still missing
         if "wallet_address" in tool_args or tool_name in ["get_balance", "send_sui", "get_transaction_history", "get_nfts"]:
