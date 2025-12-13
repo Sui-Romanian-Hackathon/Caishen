@@ -22,3 +22,4 @@ postgres_data/
 redis_data/
 
 services/web-dapp/out/assets/*
+bot-from-the-future/

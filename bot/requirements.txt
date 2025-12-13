@@ -4,6 +4,8 @@ aiohttp==3.13.2
 
 # Google Gemini AI
 google-genai==1.54.0
+langchain-core>=0.1.0
+langchain-google-genai>=1.0.0
 
 # PostgreSQL async driver
 asyncpg==0.30.0

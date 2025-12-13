@@ -24,10 +24,10 @@ from src.database.postgres import (
     resolve_contact,
     create_linking_session,
     get_linking_session,
-    get_conversation_history,
     add_to_conversation,
     clear_conversation_history,
 )
+from src.llm.wallet_agent import wallet_agent
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -67,6 +67,14 @@ def get_main_menu() -> InlineKeyboardMarkup:
 def is_valid_sui_address(address: str) -> bool:
     """Check if string is a valid Sui address"""
     return bool(re.match(r"^0x[a-fA-F0-9]{40,64}$", address))
+
+
+BUTTON_TO_REQUEST = {
+    "action_balance": "Show my balance",
+    "action_contacts": "Show my contacts",
+    "action_history": "Show my transaction history",
+    "action_help": "Help me understand what you can do",
+}
 
 
 # ============================================================================
@@ -361,181 +369,101 @@ async def command_send_handler(message: Message) -> None:
 # Callback Query Handlers
 # ============================================================================
 
-@router.callback_query(F.data == "action_help")
-async def callback_help(callback: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("action_"))
+async def handle_action_callback(callback: CallbackQuery) -> None:
+    """Universal handler for action buttons using canned requests."""
     await callback.answer()
-    await safe_answer(callback.message,
-        "Use the commands or just chat naturally!\n\n"
-        "/balance - Check balance\n"
-        "/send - Send SUI\n"
-        "/contacts - Manage contacts\n"
-        "/history - View transactions",
-        reply_markup=get_main_menu(),
-    )
 
-
-@router.callback_query(F.data == "action_balance")
-async def callback_balance(callback: CallbackQuery) -> None:
-    await callback.answer()
+    action = callback.data
     user_id = str(callback.from_user.id)
+
+    canned_request = BUTTON_TO_REQUEST.get(action)
+
+    if not canned_request:
+        if action == "action_send_prompt":
+            await callback.message.answer(
+                "✉️ <b>Send SUI</b>\n\n"
+                "Just tell me naturally:\n"
+                "• 'send 1 SUI to alice'\n"
+                "• 'transfer 0.5 to 0x...'\n"
+                "• 'pay bob 2 sui'",
+            )
+            return
+        if action == "action_zklogin_info":
+            await callback.message.answer(
+                "🔐 <b>What is zkLogin?</b>\n\n"
+                "zkLogin lets you create a Sui wallet using your Google account - no seed phrases needed!\n\n"
+                "<b>How it works:</b>\n"
+                "1. You sign in with Google\n"
+                "2. A unique wallet address is generated from your Google identity\n"
+                "3. Zero-knowledge proofs keep your Google account private\n\n"
+                "<b>Security:</b>\n"
+                "✅ No one can access your wallet without your Google account\n"
+                "✅ Your Google email is never stored on the blockchain\n"
+                "✅ Built by Mysten Labs for the Sui blockchain\n\n"
+                "Already have a Slush wallet? You can connect that instead!",
+            )
+            return
+        return
+
     wallet_address = await get_user_wallet(user_id)
+    status_msg = await callback.message.answer("Processing...")
 
-    if not wallet_address:
-        await callback.message.answer(
-            "❌ No wallet linked yet.\n\nUse /start to connect your wallet first.",
-            reply_markup=get_main_menu(),
-        )
-        return
-
-    status_msg = await callback.message.answer("⏳ Fetching balance...")
     try:
-        balance = await sui_service.get_all_balances(wallet_address)
+        await add_to_conversation(user_id, "user", canned_request)
 
-        text = (
-            f"💰 <b>Wallet Balance</b>\n\n"
-            f"<code>{wallet_address}</code>\n\n"
-            f"<b>SUI:</b> {balance['sui']['formatted']}\n"
+        result = await wallet_agent.run(
+            user_input=canned_request,
+            user_id=user_id,
+            wallet_address=wallet_address,
         )
 
-        if balance['tokens']:
-            text += "\n<b>Other Tokens:</b>\n"
-            for token in balance['tokens'][:5]:
-                text += f"• {token['symbol']}: {token['totalBalance']}\n"
-
-        await safe_edit(status_msg, text, reply_markup=get_main_menu())
-    except Exception as e:
-        logger.error(f"Balance fetch failed (callback): {e}")
-        await safe_edit(
-            status_msg,
-            "❌ Failed to fetch balance. Please try again later.",
-            reply_markup=get_main_menu(),
-        )
-
-
-@router.callback_query(F.data == "action_contacts")
-async def callback_contacts(callback: CallbackQuery) -> None:
-    await callback.answer()
-    user_id = str(callback.from_user.id)
-
-    contacts = await get_contacts(user_id)
-
-    if not contacts:
-        await safe_answer(
-            callback.message,
-            "📭 No contacts saved yet.\n\nAdd one with:\n<code>/contacts add alice 0x123...</code>",
-            reply_markup=get_main_menu(),
-        )
-        return
-
-    text = "👥 <b>Your Contacts</b>\n\n"
-    for c in contacts:
-        text += f"• <b>{c['alias']}</b>: <code>{c['address'][:10]}...{c['address'][-6:]}</code>\n"
-
-    await safe_answer(callback.message, text, reply_markup=get_main_menu())
-
-
-@router.callback_query(F.data == "action_history")
-async def callback_history(callback: CallbackQuery) -> None:
-    await callback.answer()
-    user_id = str(callback.from_user.id)
-    wallet_address = await get_user_wallet(user_id)
-
-    if not wallet_address:
-        await safe_answer(
-            callback.message,
-            "❌ No wallet linked yet.\n\nUse /start to connect your wallet first.",
-            reply_markup=get_main_menu(),
-        )
-        return
-
-    status_msg = await callback.message.answer("⏳ Fetching transaction history...")
-    try:
-        history = await sui_service.get_transaction_history(wallet_address, limit=5)
-
-        if not history['items']:
-            await safe_edit(status_msg, "📭 No transactions found yet.", reply_markup=get_main_menu())
+        if result.get("needs_signing") and result.get("tx_data"):
+            tx = result["tx_data"]
+            webapp_url = settings.WEBAPP_URL
+            tx_url = f"{webapp_url}?mode=wallet&recipient={tx['recipient']}&amount={tx['amount']}&sender={tx['sender']}"
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✍️ Sign & Send", url=tx_url)],
+            ])
+            reply_text = result["text"] + "\n\nClick below to sign:"
+            await add_to_conversation(user_id, "assistant", f"[Prepared send: {tx['amount']} SUI]")
+            await status_msg.edit_text(reply_text, reply_markup=keyboard)
             return
 
-        text = "🧾 <b>Recent Transactions</b>\n\n"
-        for tx in history['items']:
-            ts = datetime.fromtimestamp(tx['timestampMs'] / 1000).strftime('%m/%d %H:%M') if tx.get('timestampMs') else '?'
-            icon = "📤" if tx.get('kind') == 'sent' else "📥"
-            status_icon = "✅" if tx.get('status') == 'success' else "❌"
-            digest = tx.get('digest', '')
-            digest_short = f"{digest[:6]}...{digest[-4:]}" if digest else "tx"
-            explorer_url = tx.get('explorerUrl', '')
-            text += f"{icon} {ts} {status_icon} <a href=\"{explorer_url}\">{digest_short}</a>\n"
-
-        await safe_edit(status_msg, text, disable_web_page_preview=True, reply_markup=get_main_menu())
-    except Exception as e:
-        logger.error(f"History fetch failed (callback): {e}")
-        await safe_edit(
-            status_msg,
-            "❌ Failed to fetch history. Please try again later.",
-            reply_markup=get_main_menu(),
-        )
-
-
-@router.callback_query(F.data == "action_send_prompt")
-async def callback_send_prompt(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.answer(
-        "✉️ <b>Send SUI</b>\n\n"
-        "Type: <code>/send &lt;amount&gt; &lt;recipient&gt;</code>\n\n"
-        "Examples:\n"
-        "• <code>/send 0.5 0xabc123...</code>\n"
-        "• <code>/send 1 alice</code> (contact name)",
-    )
-
-
-@router.callback_query(F.data == "action_zklogin_info")
-async def callback_zklogin_info(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.answer(
-        "🔐 <b>What is zkLogin?</b>\n\n"
-        "zkLogin lets you create a Sui wallet using your Google account - no seed phrases needed!\n\n"
-        "<b>How it works:</b>\n"
-        "1. You sign in with Google\n"
-        "2. A unique wallet address is generated from your Google identity\n"
-        "3. Zero-knowledge proofs keep your Google account private\n\n"
-        "<b>Security:</b>\n"
-        "✅ No one can access your wallet without your Google account\n"
-        "✅ Your Google email is never stored on the blockchain\n"
-        "✅ Built by Mysten Labs for the Sui blockchain\n\n"
-        "Already have a Slush wallet? You can connect that instead!",
-    )
+        reply_text = result.get("text", "I didn't quite get that.")
+        await add_to_conversation(user_id, "assistant", reply_text)
+        await status_msg.edit_text(reply_text, reply_markup=get_main_menu())
+    except Exception as exc:
+        logger.error(f"Action {action} failed: {exc}")
+        await status_msg.edit_text(f"❌ Error: {exc}", reply_markup=get_main_menu())
 
 
 # ============================================================================
 # Voice Message Handler
 # ============================================================================
 
+
 @router.message(F.voice)
 async def voice_message_handler(message: Message) -> None:
-    """Handle voice messages - transcribe with Gemini and process"""
+    """Handle voice messages - transcribe with Gemini then route to agent."""
     status_msg = await message.answer("🎤 Processing your voice message...")
 
     try:
-        # Download and convert audio
         audio_file_id = message.voice.file_id
         ogg_path = await download_file_from_telegram(message.bot, audio_file_id)
         wav_path = convert_ogg_to_wav(ogg_path)
 
-        # Transcribe with Gemini
         transcription = await gemini_service.transcribe_audio(wav_path)
 
         if not transcription:
             await safe_edit(status_msg, "❌ Could not transcribe audio. Please try again or type your message.")
             return
 
-        # Show transcription and process as text
         await safe_edit(status_msg, f'🎤 I heard: "<i>{transcription}</i>"\n\nProcessing...')
+        await process_with_agent(message, transcription, status_msg)
 
-        # Process transcribed text as a regular message
-        await process_text_message(message, transcription, status_msg)
-
-    except Exception as e:
-        logger.error(f"Voice processing failed: {e}")
+    except Exception as exc:
+        logger.error(f"Voice processing failed: {exc}")
         await safe_edit(status_msg, "❌ Error processing voice message. Please try again or type your message.")
 
 
@@ -546,165 +474,57 @@ async def voice_message_handler(message: Message) -> None:
 @router.message(F.text)
 async def text_message_handler(message: Message) -> None:
     """Handle regular text messages with AI"""
-    await process_text_message(message, message.text)
+    await process_with_agent(message, message.text)
 
 
-async def process_text_message(
+async def process_with_agent(
     message: Message,
     text: str,
-    status_msg: Optional[Message] = None
+    status_msg: Optional[Message] = None,
 ) -> None:
-    """Process text message with Gemini AI"""
+    """Process text (or transcribed voice) through the wallet agent."""
     user_id = str(message.from_user.id)
-
-    # Ensure user exists
     await ensure_user(user_id, message.from_user.username, message.from_user.first_name)
 
-    # Get wallet address
     wallet_address = await get_user_wallet(user_id)
-    history = await get_conversation_history(user_id, limit=20)
 
     try:
-        # Persist user message first
         await add_to_conversation(user_id, "user", text)
 
-        # Get AI response
-        response = await gemini_service.chat(
-            message=text,
+        result = await wallet_agent.run(
+            user_input=text,
+            user_id=user_id,
             wallet_address=wallet_address,
-            history=history,
         )
 
-        # Handle function calls
-        if response.get("function_call"):
-            fc = response["function_call"]
-            await handle_function_call(message, fc, wallet_address, status_msg)
-            await add_to_conversation(user_id, "assistant", f"[Called {fc.get('name')}]")
+        if result.get("needs_signing") and result.get("tx_data"):
+            tx = result["tx_data"]
+            webapp_url = settings.WEBAPP_URL
+            tx_url = f"{webapp_url}?mode=wallet&recipient={tx['recipient']}&amount={tx['amount']}&sender={tx['sender']}"
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✍️ Sign & Send", url=tx_url)],
+            ])
+            reply_text = result["text"] + "\n\nClick below to sign:"
+            await add_to_conversation(user_id, "assistant", f"[Prepared send: {tx['amount']} SUI]")
+
+            if status_msg:
+                await safe_edit(status_msg, reply_text, reply_markup=keyboard)
+            else:
+                await safe_answer(message, reply_text, reply_markup=keyboard)
             return
 
-        # Send text response
-        reply_text = response.get("text", "I'm not sure how to help with that.")
+        reply_text = result.get("text", "I'm not sure how to help with that.")
         await add_to_conversation(user_id, "assistant", reply_text)
 
         if status_msg:
-            await safe_edit(status_msg, reply_text)
+            await safe_edit(status_msg, reply_text, reply_markup=get_main_menu())
         else:
-            await safe_answer(message, reply_text)
+            await safe_answer(message, reply_text, reply_markup=get_main_menu())
 
-    except Exception as e:
-        logger.error(f"AI processing failed: {e}")
-        error_text = "❌ Sorry, I had trouble understanding that. Try using a command like /help"
+    except Exception as exc:
+        logger.error(f"Agent processing failed: {exc}")
+        error_text = "❌ Sorry, something went wrong. Try /help"
         if status_msg:
             await safe_edit(status_msg, error_text)
         else:
             await safe_answer(message, error_text)
-
-
-async def handle_function_call(
-    message: Message,
-    fc: dict,
-    wallet_address: Optional[str],
-    status_msg: Optional[Message] = None
-) -> None:
-    """Handle AI function calls"""
-    user_id = str(message.from_user.id)
-    func_name = fc.get("name")
-    args = fc.get("args", {})
-
-    async def reply(text: str, **kwargs):
-        if status_msg:
-            await safe_edit(status_msg, text, **kwargs)
-        else:
-            await safe_answer(message, text, **kwargs)
-
-    try:
-        if func_name == "get_balance":
-            if not wallet_address:
-                await reply("❌ No wallet linked. Use /start to connect your wallet first.")
-                return
-
-            balance = await sui_service.get_all_balances(wallet_address)
-            await reply(
-                f"💰 <b>Balance:</b> {balance['sui']['formatted']}\n"
-                f"<code>{wallet_address}</code>",
-                reply_markup=get_main_menu(),
-            )
-
-        elif func_name == "send_sui":
-            if not wallet_address:
-                await reply("❌ No wallet linked. Use /start to connect your wallet first.")
-                return
-
-            amount = args.get("amount", 0)
-            recipient = args.get("recipient", "")
-
-            # Resolve contact
-            if not is_valid_sui_address(recipient):
-                resolved = await resolve_contact(user_id, recipient)
-                if resolved:
-                    recipient = resolved
-                else:
-                    await reply(f'❌ Contact "{recipient}" not found. Please add it or use a full address.')
-                    return
-
-            webapp_url = settings.WEBAPP_URL
-            tx_url = f"{webapp_url}?mode=wallet&recipient={recipient}&amount={amount}&sender={wallet_address}"
-
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✍️ Sign & Send", url=tx_url)],
-            ])
-
-            await reply(
-                f"📋 <b>Ready to send {amount} SUI</b>\n\n"
-                f"<b>To:</b> <code>{recipient[:10]}...{recipient[-6:]}</code>\n\n"
-                "Click below to sign:",
-                reply_markup=keyboard,
-            )
-
-        elif func_name == "list_contacts":
-            contacts = await get_contacts(user_id)
-            if not contacts:
-                await reply("📭 No contacts yet. Add one with /contacts add name address")
-            else:
-                text = "👥 <b>Contacts:</b>\n"
-                for c in contacts:
-                    text += f"• {c['alias']}: <code>{c['address'][:10]}...</code>\n"
-                await reply(text)
-
-        elif func_name == "add_contact":
-            name = args.get("name", "")
-            address = args.get("address", "")
-
-            if not is_valid_sui_address(address):
-                await reply("❌ Invalid address format.")
-                return
-
-            success = await add_contact(user_id, name, address)
-            if success:
-                await reply(f'✅ Added contact "{name}"')
-            else:
-                await reply("❌ Failed to add contact.")
-
-        elif func_name == "get_history":
-            if not wallet_address:
-                await reply("❌ No wallet linked. Use /start to connect your wallet first.")
-                return
-
-            limit = args.get("limit", 5)
-            history = await sui_service.get_transaction_history(wallet_address, limit=limit)
-
-            if not history['items']:
-                await reply("📭 No transactions found.")
-                return
-
-            text = "🧾 <b>Recent Transactions:</b>\n\n"
-            for tx in history['items'][:5]:
-                icon = "📤" if tx['kind'] == 'sent' else "📥"
-                await reply(text + f"{icon} <a href=\"{tx['explorerUrl']}\">{tx['digest'][:12]}...</a>\n", disable_web_page_preview=True)
-
-        else:
-            await reply(f"I understood you want to {func_name}, but I can't do that yet.")
-
-    except Exception as e:
-        logger.error(f"Function call {func_name} failed: {e}")
-        await reply(f"❌ Error executing {func_name}. Please try again.")
