@@ -20,6 +20,7 @@ import {
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { useEffect, useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { LinkPage } from './LinkPage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,21 +45,129 @@ const { networkConfig } = createNetworkConfig({
 const queryClient = new QueryClient();
 
 export function App() {
-  // Simple path-based routing
-  const isLinkPage = window.location.pathname.startsWith('/link');
-
   return (
     <QueryClientProvider client={queryClient}>
       <SuiClientProvider networks={networkConfig} defaultNetwork={SUI_NETWORK as 'testnet' | 'mainnet'}>
         <WalletProvider autoConnect>
-          {isLinkPage ? <LinkPage /> : <Page />}
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<WalletGatePage />} />
+              <Route path="/send-funds" element={<SendFundsPage />} />
+              <Route path="/create-wallet" element={<CreateWalletPage />} />
+              <Route path="/link" element={<LinkPage />} />
+              <Route path="/link/*" element={<LinkPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </BrowserRouter>
         </WalletProvider>
       </SuiClientProvider>
     </QueryClientProvider>
   );
 }
 
-function Page() {
+// Landing page - "Do you have a crypto wallet?"
+function WalletGatePage() {
+  const navigate = useNavigate();
+
+  const handleConnectWallet = () => {
+    navigate("/send-funds");
+  };
+
+  const handleCreateWallet = () => {
+    navigate("/create-wallet");
+  };
+
+  return (
+    <main className="min-h-screen bg-background flex items-center justify-center p-6">
+      <div className="flex flex-col items-center gap-10 max-w-2xl w-full text-center">
+        <div>
+          <p className="text-xs text-primary uppercase tracking-wider mb-4">Caishen</p>
+          <h1 className="text-3xl md:text-5xl font-bold text-foreground leading-tight">
+            Do you already have a crypto wallet?
+          </h1>
+        </div>
+
+        <div className="flex flex-col gap-6 w-full max-w-md">
+          <button
+            onClick={handleConnectWallet}
+            aria-label="Connect existing wallet and proceed to send funds page."
+            className="w-full min-h-[80px] px-8 py-6 text-xl font-bold rounded-xl transition-all
+                       bg-primary text-primary-foreground hover:bg-primary/90
+                       focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+          >
+            Yes, I have a wallet
+          </button>
+
+          <button
+            onClick={handleCreateWallet}
+            aria-label="Create a new wallet."
+            className="w-full min-h-[80px] px-8 py-6 text-xl font-bold rounded-xl transition-all
+                       bg-secondary text-secondary-foreground hover:bg-secondary/80
+                       focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+          >
+            No, I need a new wallet
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// Create wallet page
+function CreateWalletPage() {
+  const navigate = useNavigate();
+
+  return (
+    <main className="min-h-screen bg-background flex items-center justify-center p-6">
+      <div className="flex flex-col items-center gap-10 max-w-2xl w-full text-center">
+        <div>
+          <p className="text-xs text-primary uppercase tracking-wider mb-4">Caishen</p>
+          <h1 className="text-3xl md:text-5xl font-bold text-foreground leading-tight">
+            Create New Wallet
+          </h1>
+        </div>
+
+        <p className="text-lg text-muted-foreground">
+          Wallet creation flow coming soon.
+        </p>
+
+        <button
+          onClick={() => navigate("/")}
+          aria-label="Go back to wallet selection."
+          className="min-h-[60px] px-8 py-4 text-lg font-bold rounded-xl transition-all
+                     bg-secondary text-secondary-foreground hover:bg-secondary/80
+                     focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+        >
+          ← Go Back
+        </button>
+      </div>
+    </main>
+  );
+}
+
+// 404 page
+function NotFoundPage() {
+  const navigate = useNavigate();
+
+  return (
+    <main className="min-h-screen bg-background flex items-center justify-center p-6">
+      <div className="flex flex-col items-center gap-6 max-w-md w-full text-center">
+        <p className="text-xs text-primary uppercase tracking-wider">Caishen</p>
+        <h1 className="text-4xl font-bold text-foreground">404</h1>
+        <p className="text-muted-foreground">Page not found</p>
+        <button
+          onClick={() => navigate("/")}
+          className="px-6 py-3 font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          Go Home
+        </button>
+      </div>
+    </main>
+  );
+}
+
+// Send funds page
+function SendFundsPage() {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute, isPending } = useSignAndExecuteTransaction();
@@ -117,7 +226,6 @@ function Page() {
 
   // Ephemeral key stored for OAuth callback flow
   const [ephemeralKeypair, setEphemeralKeypair] = useState<Ed25519Keypair | null>(null);
-  const [oauthNonce, setOauthNonce] = useState<string | null>(null);
   const [maxEpoch, setMaxEpoch] = useState<number | null>(null);
   const [randomness, setRandomness] = useState<string | null>(null);
 
@@ -230,7 +338,6 @@ function Page() {
       const rand = generateRandomness();
       setRandomness(rand.toString());
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
-      setOauthNonce(nonce);
 
       // Store keypair info in sessionStorage for callback
       sessionStorage.setItem('zklogin_eph', JSON.stringify({
