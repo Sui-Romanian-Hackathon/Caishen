@@ -192,25 +192,34 @@ class WalletGraphAgent:
 
   async def run(self, user_input: str, user_id: str, wallet_address: Optional[str] = None) -> Dict[str, Any]:
     """Execute the graph and return a router-friendly payload."""
-    initial_state: State = {"user_input": user_input, "user_id": user_id}
-    final_state = await self.app.ainvoke(initial_state)
+    try:
+      initial_state: State = {"user_input": user_input, "user_id": user_id}
+      final_state = await self.app.ainvoke(initial_state)
 
-    domain = final_state.get("domain", Domain.fallback)
-    tool_name = final_state.get("tool_name", "fallback")
-    tool_result = final_state.get("tool_result", "")
+      domain = final_state.get("domain", Domain.fallback)
+      tool_name = final_state.get("tool_name", "fallback")
+      tool_result = final_state.get("tool_result", "")
 
-    text_response = (
-      "Your request does not look wallet-related. Please try again."
-      if domain == Domain.fallback
-      else f"Domain: {domain}\nAction: {tool_name}\nResult: {tool_result}"
-    )
+      text_response = (
+        "Your request does not look wallet-related. Please try again."
+        if domain == Domain.fallback
+        else f"Domain: {domain}\nAction: {tool_name}\nResult: {tool_result}"
+      )
 
-    return {
-      "text": text_response,
-      "action": tool_name if tool_name != "fallback" else None,
-      "needs_signing": False,
-      "tx_data": None,
-    }
+      return {
+        "text": text_response,
+        "action": tool_name if tool_name != "fallback" else None,
+        "needs_signing": False,
+        "tx_data": None,
+      }
+    except Exception as exc:
+      logger.error("Agent run failed: %s", exc)
+      return {
+        "text": "❌ Sorry, something went wrong. Try /help",
+        "action": None,
+        "needs_signing": False,
+        "tx_data": None,
+      }
 
 
 # Singleton instance used by handlers/tests

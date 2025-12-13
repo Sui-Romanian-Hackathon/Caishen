@@ -133,28 +133,23 @@ async def command_start_handler(message: Message) -> None:
 @router.message(Command("help"))
 async def command_help_handler(message: Message) -> None:
     """Handle /help command"""
-    wallet_commands = """
-        **Commands:**
-        /start - Connect your wallet
-        /connect <address> - Manually link a wallet
-        /help - This help menu
-        /balance - Check your SUI balance
-        /send <amount> <address> - Send SUI
-        /contacts - List saved contacts
-        /contacts add <name> <address> - Add a contact
-        /history - Recent transactions
-        /reset - Clear conversation history
-
-        **Or just chat naturally:**
-        "What's my balance?"
-        "Send 1 SUI to alice"
-        "Show my transaction history"
-    """
-    await safe_answer(
-        message,
-        wallet_commands,
-        reply_markup=get_main_menu(),
+    wallet_commands = (
+        "<b>Commands:</b>\n"
+        "/start - Connect your wallet\n"
+        "/connect &lt;address&gt; - Manually link a wallet\n"
+        "/help - This help menu\n"
+        "/balance - Check your SUI balance\n"
+        "/send &lt;amount&gt; &lt;address&gt; - Send SUI\n"
+        "/contacts - List saved contacts\n"
+        "/contacts add &lt;name&gt; &lt;address&gt; - Add a contact\n"
+        "/history - Recent transactions\n"
+        "/reset - Clear conversation history\n\n"
+        "<b>Or just chat naturally:</b>\n"
+        "\"What's my balance?\"\n"
+        "\"Send 1 SUI to alice\"\n"
+        "\"Show my transaction history\""
     )
+    await safe_answer(message, wallet_commands, reply_markup=get_main_menu())
 
 
 @router.message(Command("reset"))
