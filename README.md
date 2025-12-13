@@ -1,69 +1,149 @@
-# AI Copilot Wallet for Sui
+# Caishen - AI Copilot Wallet for Sui
 
-> **Status:** Active Development | **Version:** 0.3.0 (2GB RAM Optimized + Smart Contracts)
+> **Status:** Active Development | **Version:** 0.4.1  
+> **Deployed:** caishen.iseethereaper.com
 
-A Telegram-based AI wallet assistant for the Sui blockchain, featuring natural language transaction building, zkLogin authentication, and Gemini AI integration.
+A Telegram-first AI wallet assistant for the Sui blockchain with zkLogin (Google OAuth), Slush/Wallet Standard support, AI-driven natural language intents, and a React-based signing web dApp.
+
+---
 
 ## 🚀 Quick Start
 
-**Prerequisites:** Node.js 20+ required (Node 18 is too old)
+### Prerequisites
+- **Python 3.11+** (bot backend)
+- **Node.js 20+** (web dApp)
+- **PostgreSQL 16** (database)
+- **Docker** (recommended for deployment)
+
+### Local Development
 
 ```bash
-# Automated setup (includes Node upgrade on Ubuntu/WSL)
-chmod +x setup.sh && ./setup.sh
+# 1. Bot (Python/aiogram)
+cd bot
+python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
+cp .env.example .env  # Configure: TELEGRAM_BOT_TOKEN, POSTGRES_*, GEMINI_API_KEY
+python -m src.bot.bot
 
-# Or manual
+# 2. Web dApp (React/Vite)
+cd services/web-dapp
 npm install
-cp .env.example .env
-# Edit .env with your API keys
+cp .env.example .env  # Configure: VITE_API_BASE_URL, VITE_GOOGLE_CLIENT_ID, VITE_SUI_NETWORK
 npm run dev
+
+# 3. Database
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=caishen postgres:16
+psql -U postgres -d caishen -f database/init/001_schema.sql
 ```
 
-📖 **Full guide:** [QUICKSTART.md](./QUICKSTART.md)
+📖 **Full guides:** [QUICKSTART.md](./QUICKSTART.md) | [INSTALLATION.md](./INSTALLATION.md)
+
+---
 
 ## ⚡ Features
 
-- 💬 **Natural Language Interface** - Telegram bot powered by Gemini 2.0 Flash
-- 🔐 **zkLogin Authentication** - Google OAuth with zero-knowledge proofs (via Mysten Labs APIs)
-- 💰 **Sui Blockchain Integration** - Send SUI, tokens, NFTs with AI-driven function calling
-- 🗃️ **Lightweight Storage** - SQLite3 for 2GB RAM servers (~50MB footprint)
-- 🎯 **AI Function Calling** - 7 Gemini tools executing Sui SDK operations
-- 📱 **Contact Management** - Store and resolve wallet addresses by friendly names
-- 📜 **Smart Contracts** - On-chain batch transfers, contact registry, spending limits (Move)
+- 💬 **Natural Language Interface** - Chat or voice commands powered by Gemini 2.0 Flash
+- 🔐 **zkLogin + Wallet Standard** - Google OAuth zkLogin or connect Slush/any Sui wallet
+- 🔗 **Persistent Wallet Linking** - Bind Telegram account to wallet via secure web flow
+- 💰 **Sui Blockchain Integration** - Balance, send, NFTs, transaction history
+- 🎯 **AI Function Calling** - 5+ tools: balance, send, contacts, history, portfolio
+- 📱 **Contact Management** - Store friendly names for addresses (database + on-chain registry)
+- 📜 **Smart Contracts** - Batch transfers, contact registry, spending guardrails (Move)
+- 🎤 **Voice Input** - Gemini multimodal transcription (replaces Whisper)
 
-## 🏗️ Architecture (2GB RAM Optimized)
+---
+
+## 🏗️ Architecture (v0.4.1)
 
 ```
-Telegram Bot (Node.js + Express)
-  ↓
-Gemini AI (Function Calling with 7 Tools)
-  ↓
-Sui SDK (@mysten/sui v1.14+)
-  ↓
-SQLite3 (users.db + transactions.db)
-  +
-External Mysten Labs zkLogin APIs
+┌─────────────────┐     HTTPS/Webhook    ┌──────────────────┐
+│   Telegram      │ ─────────────────────▶│  nginx (SSL)     │
+│   Users         │                       │  Port 443/80     │
+└─────────────────┘                       └────────┬─────────┘
+                                                   │
+                              ┌────────────────────┼────────────────────┐
+                              ▼                    ▼                    ▼
+                    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+                    │  Python Bot     │  │  PostgreSQL     │  │  React Web dApp │
+                    │  (aiogram)      │<<│  Database       │  │  (Vite)         │
+                    │  Port 3001      │  │  Port 5432      │  │  Static Build   │
+                    └────────┬────────┘  └─────────────────┘  └────────┬────────┘
+                             │                                          │
+                             │ Sui RPC                                  │ zkLogin OAuth
+                             ▼                                          ▼
+                    ┌─────────────────┐                        ┌─────────────────┐
+                    │  Sui Blockchain │                        │  Mysten Labs    │
+                    │  (testnet)      │                        │  Salt/Prover    │
+                    └─────────────────┘                        └─────────────────┘
 ```
 
-### Why 2GB Optimized?
+### Tech Stack
+- **Bot:** Python 3.11, aiogram, aiohttp, httpx (Sui RPC), google-genai (Gemini)
+- **Web dApp:** React 18, Vite, @mysten/dapp-kit, @mysten/sui/zklogin
+- **Database:** PostgreSQL 16 (users, wallet_links, contacts, linking_sessions)
+- **Chain:** Sui testnet/mainnet via JSON-RPC
+- **AI:** Gemini 2.0 Flash (NLP + voice transcription + function calling)
+- **Infra:** nginx (reverse proxy + SSL), Docker Compose
 
-This architecture targets VPS servers with limited RAM:
+---
 
-- ✅ **SQLite3** instead of PostgreSQL (~400MB saved)
-- ✅ **External zkLogin APIs** instead of local prover service (~200MB saved)
-- ✅ **Total footprint:** ~800MB (down from ~1.5GB)
+## 🔄 User Flow
 
-See [AI_Copilot_Wallet_Product_Specification_with_zklogin_microervices.md](./AI_Copilot_Wallet_Product_Specification_with_zklogin_microervices.md) for full architecture details.
+### 1. Wallet Linking (One-Time Setup)
+
+```
+User sends /start in Telegram
+         ↓
+Bot creates 15-min token, returns link:
+https://caishen.iseethereaper.com/link/@username?token=abc123
+         ↓
+User chooses on web page:
+  [Create zkLogin wallet]  or  [Connect Slush/other wallet]
+         ↓
+If zkLogin: Google OAuth → Mysten salt/prover → zkLogin address
+If Slush: Wallet Standard connection → address
+         ↓
+Telegram Login Widget verifies Telegram account (HMAC)
+         ↓
+Bot API binds: telegram_id + wallet_address + zkLogin salt/sub
+         ↓
+Done! Now user can use /balance, /send, /history, AI commands
+```
+
+### 2. Daily Usage (After Linking)
+
+```bash
+# Balance check
+User: "/balance"
+Bot: "💰 Your balance: 1,234.56 SUI"
+
+# Natural language send
+User: "Send 10 SUI to Alice"
+Bot: [Gemini parses intent] → [Builds unsigned tx] → [Returns signing link]
+User clicks link → Web dApp opens → Wallet signs → Tx confirmed
+
+# Voice command
+User: [🎤 Voice note] "What's my transaction history?"
+Bot: [Gemini transcribes] → [Fetches history] → "📜 Last 5 transactions..."
+
+# Contact management
+User: "/contacts add Alice 0x1234..."
+Bot: "✅ Added Alice"
+User: "Send 5 SUI to Alice"
+Bot: [Resolves Alice → 0x1234...] → [Builds tx]
+```
+
+---
 
 ## 📜 Smart Contracts (Move)
 
-On-chain smart contracts for advanced blockchain operations. See [SMART_CONTRACTS.md](./SMART_CONTRACTS.md) for full documentation.
+On-chain smart contracts deployed to Sui. See [SMART_CONTRACTS.md](./SMART_CONTRACTS.md) for full documentation.
 
-| Contract | Purpose | Key Benefit |
-|----------|---------|-------------|
-| **BatchTransfer** | Multi-recipient payments | "Pay 10 people" in one tx |
-| **ContactRegistry** | On-chain address book | Portable, shared contacts |
-| **SpendingGuardian** | Rate-limited transfers | Anti-theft, spending limits |
+| Contract | Purpose | Key Benefit | Status |
+|----------|---------|-------------|--------|
+| **BatchTransfer** | Multi-recipient payments | "Pay 10 people" in 1 tx | ✅ Implemented, but not used yet |
+| **ContactRegistry** | On-chain address book | Portable, shared contacts | ✅ Implemented, but not used yet |
+| **SpendingGuardian** | Rate-limited transfers | Anti-theft, spending limits | ✅ Implemented, but not used yet |
 
 ### Quick Commands
 
@@ -81,242 +161,344 @@ sui client publish --gas-budget 100000000
 ### Example Use Cases
 
 ```
-"Send 5 SUI to alice, bob, and carol"    → BatchTransfer
-"Add alice as 0x123..."                   → ContactRegistry
-"Set my daily limit to 100 SUI"           → SpendingGuardian
-"Freeze my account"                       → SpendingGuardian
+"Send 5 SUI to alice, bob, and carol"    → BatchTransfer.batch_send_sui()
+"Add alice as 0x123..."                   → ContactRegistry.add_contact()
+"Set my daily limit to 100 SUI"           → SpendingGuardian.set_limit()
+"Freeze my account"                       → SpendingGuardian.freeze()
 ```
 
-## 📦 Dependencies
-
-**Core:**
-- `@mysten/sui` ^1.14.0 (unified SDK - replaces deprecated @mysten/sui.js)
-- `better-sqlite3` ^11.7.0 (Node 18+) or ^12.5.0 (Node 20+ recommended)
-- `zod` ^4.1.13 (schema validation for Gemini function calling)
-- `express` ^5.2.1
-- `axios` ^1.13.2
-
-**AI/NLP:**
-- Google Gemini 2.0 Flash (via `@google/generative-ai`)
-
-**External Services:**
-- Mysten Labs zkLogin APIs:
-  - Salt: `https://salt.api.mystenlabs.com/get_salt`
-  - Prover (testnet): `https://prover-dev.mystenlabs.com/v1`
-  - Prover (mainnet): `https://prover.mystenlabs.com/v1`
-
-## 🔧 Setup
-
-### 1. Node.js Version
-
-**⚠️ CRITICAL:** Requires Node.js 20+ (not 18)
-
-```bash
-# Check version
-node -v
-
-# Upgrade on Ubuntu/WSL
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Or use automated setup
-./setup.sh
-```
-
-### 2. Install Dependencies
-
-
-```bash
-# Clean install (recommended after package.json changes)
-rm -rf node_modules package-lock.json
-npm install
-```
-
-**Known issues:**
-- ⚠️ If better-sqlite3 fails to install - upgrade to Node 20+ first
-
-### 3. Environment Configuration
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with required values:
-
-```env
-# Required
-TELEGRAM_BOT_TOKEN=your_token_from_@BotFather
-GOOGLE_AI_API_KEY=your_gemini_api_key
-
-# Optional (has defaults)
-SUI_RPC_URL=https://fullnode.testnet.sui.io:443
-SQLITE_DB_PATH=./data
-PORT=3001
-TELEGRAM_WEBHOOK_SECRET=random_string_for_security
-```
-
-### 4. Run Development Server
-
-```bash
-npm run dev
-```
-
-**Verify:**
-- Server starts on port 3001
-- SQLite databases created in `./data/` directory
-- No import errors or dependency warnings
+---
 
 ## 📂 Project Structure
 
 ```
 .
-├── move/                           # Smart Contracts (Sui Move)
-│   ├── Move.toml                   # Package manifest
-│   └── sources/
-│       ├── batch_transfer.move     # Multi-recipient transfers
-│       ├── contact_registry.move   # On-chain address book
-│       └── spending_guardian.move  # Rate-limited spending
-│
-├── src/
-│   ├── index.ts                    # Server bootstrap + webhook registration
-│   ├── server.ts                   # Express app setup
-│   ├── config/
-│   │   └── env.ts                  # Environment validation (zod schemas)
-│   ├── routes/
-│   │   └── telegram.ts             # Telegram webhook endpoint
-│   ├── services/
+├── bot/                                # Python Telegram Bot
+│   ├── src/
+│   │   ├── bot/
+│   │   │   ├── bot.py                  # Main bot entry point (aiogram)
+│   │   │   └── handlers/               # Command handlers
+│   │   ├── services/
+│   │   │   ├── gemini.py               # Gemini AI integration
+│   │   │   └── sui.py                  # Sui RPC client (httpx)
 │   │   ├── database/
-│   │   │   └── sqlite.ts           # SQLite database layer
-│   │   ├── telegram/
-│   │   │   ├── telegramClient.ts   # Telegram Bot API client
-│   │   │   ├── updateHandler.ts    # Command routing (/start, /balance, etc.)
-│   │   │   └── webhook.ts          # Webhook registration
-│   │   ├── llm/
-│   │   │   ├── llmService.ts       # Main LLM orchestration
-│   │   │   ├── geminiClient.ts     # Gemini API integration
-│   │   │   ├── tools.ts            # Tool definitions (7+ tools with schemas)
-│   │   │   └── toolHandlers.ts     # Tool execution logic
-│   │   ├── sui/
-│   │   │   ├── client.ts           # Sui RPC client (@mysten/sui)
-│   │   │   ├── suiService.ts       # Balance & transaction queries
-│   │   │   ├── txBuilder.ts        # Transaction construction
-│   │   │   ├── historyService.ts   # Transaction history
-│   │   │   ├── nftService.ts       # NFT queries
-│   │   │   └── utils.ts            # Sui utilities
-│   │   ├── session/
-│   │   │   ├── sessionStore.ts     # User session management
-│   │   │   └── tokenService.ts     # Secure token generation (bcrypt)
-│   │   └── contacts/
-│   │       └── contactStore.ts     # Contact name resolution
-│   └── utils/
-│       ├── logger.ts               # Logging utilities
-│       └── security.ts             # Security helpers
+│   │   │   └── postgres.py             # PostgreSQL connection
+│   │   └── utils/
+│   │       └── audio_processor.py      # Voice transcription
+│   ├── requirements.txt
+│   └── Dockerfile
+│
+├── services/
+│   ├── web-dapp/                       # React Signing Interface
+│   │   ├── src/
+│   │   │   ├── App.tsx                 # Main app with wallet connection
+│   │   │   ├── LinkPage.tsx            # /link/:handle page (zkLogin/Slush)
+│   │   │   └── main.tsx                # Vite entry point
+│   │   ├── package.json
+│   │   └── vite.config.ts
+│   │
+│   ├── transaction-builder/            # (Legacy - now in bot)
+│   ├── user-service/                   # (Legacy - now in bot)
+│   ├── zklogin-service/                # (External Mysten APIs)
+│   ├── nlp-service/                    # (Now Gemini in bot)
+│   └── notification-service/           # (Future - webhooks)
+│
+├── move/                               # Smart Contracts (Sui Move)
+│   ├── sources/
+│   │   ├── batch_transfer.move         # Multi-recipient transfers
+│   │   ├── contact_registry.move       # On-chain address book
+│   │   └── spending_guardian.move      # Rate-limited spending
+│   ├── tests/
+│   └── Move.toml
+│
+├── database/
+│   └── init/
+│       └── 001_schema.sql              # PostgreSQL schema (users, wallet_links, contacts)
+│
+├── nginx/
+│   ├── nginx.conf                      # Main nginx config (SSL termination)
+│   ├── caishen.iseethereaper.com.conf  # Site-specific config
+│   └── ssl/                            # SSL certificates (Let's Encrypt)
+│
+├── docker-compose.yml                  # Multi-service orchestration
+├── .env.example                        # Environment template
+└── README.md                           # This file
 ```
+
+---
 
 ## 🛠️ Development
 
-### Available Scripts
+### Bot Development (Python)
 
 ```bash
-npm run dev        # Start development server (tsx watch mode)
-npm run build      # Compile TypeScript
-npm run start      # Run production build
-npm run lint       # Run ESLint + type-check
+cd bot
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# Run with hot reload
+python -m src.bot.bot
+
+# Run tests
+pytest tests/
 ```
 
-### Code Quality
+### Web dApp Development (Node.js)
 
 ```bash
-# Check for errors
-npm run lint
+cd services/web-dapp
+npm install
+npm run dev  # Runs on http://localhost:5173
 
-# Expected output: Only prettier formatting warnings (cosmetic)
-# No TypeScript compilation errors
+# Build for production
+npm run build  # Output: out/
 ```
 
-## 🔐 Security
+### Smart Contracts (Move)
 
-- **Webhook Secret:** Telegram requests validated with `X-Telegram-Bot-Api-Secret-Token`
-- **Token Hashing:** One-time link tokens stored with bcrypt (salt rounds: 10)
-- **Input Validation:** All inputs validated with zod schemas
-- **Unsigned Transactions:** Server only builds unsigned transactions, never signs
-- **External zkLogin:** Zero-knowledge proofs generated via Mysten Labs APIs
+```bash
+cd move
+sui move build
+sui move test
+sui client publish --gas-budget 100000000
+```
 
-## 📚 Documentation
+---
 
-- [QUICKSTART.md](./QUICKSTART.md) - Fast-track setup guide
-- [INSTALLATION.md](./INSTALLATION.md) - Detailed installation steps
-- [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) - Development roadmap
-- [SMART_CONTRACTS.md](./SMART_CONTRACTS.md) - Move smart contracts guide
-- [AI_Copilot_Wallet_Product_Specification_with_zklogin_microervices.md](./AI_Copilot_Wallet_Product_Specification_with_zklogin_microervices.md) - Full architecture
+## 🔐 Environment Variables
+
+### Bot (.env)
+
+```env
+# Telegram
+TELEGRAM_BOT_TOKEN=your_bot_token_from_BotFather
+TELEGRAM_WEBHOOK_SECRET=random_secret_for_webhook_validation
+WEBHOOK_BASE_URL=https://caishen.iseethereaper.com
+WEBAPP_URL=https://caishen.iseethereaper.com
+
+# Database
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=caishen
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_secure_password
+
+# AI
+GEMINI_API_KEY=your_google_ai_api_key
+
+# Sui
+SUI_NETWORK=testnet  # or mainnet
+SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+```
+
+### Web dApp (.env)
+
+```env
+VITE_API_BASE_URL=https://caishen.iseethereaper.com
+VITE_TELEGRAM_BOT_USERNAME=your_bot_username
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
+VITE_SUI_NETWORK=testnet
+VITE_ZKLOGIN_SALT_SERVICE_URL=https://salt.api.mystenlabs.com/get_salt
+VITE_ZKLOGIN_PROVER_URL=https://prover-dev.mystenlabs.com/v1  # testnet
+```
+
+---
 
 ## 🚢 Deployment
 
-### Docker (Recommended)
+### Docker Compose (Recommended)
 
 ```bash
-docker compose up -d
+# 1. Clone and configure
+git clone https://github.com/your-org/caishen.git
+cd caishen
+cp .env.example .env
+# Edit .env with production values
+
+# 2. Build and deploy
+docker-compose up -d --build
+
+# 3. Sync web dApp static files
+docker-compose exec web-dapp npm run build
+sudo rsync -av --delete services/web-dapp/out/ /var/www/caishen/web/
+
+# 4. Set webhook
+curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook" \
+  -d "url=https://caishen.iseethereaper.com/webhook" \
+  -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>"
+
+# 5. Reload nginx
+sudo systemctl reload nginx
 ```
 
 ### Manual VPS Deployment
 
-1. Upgrade Node.js to v20+
-2. Clone repository
-3. Install dependencies: `npm install`
-4. Configure `.env`
-5. Build: `npm run build`
-6. Start: `npm run start`
-7. Use PM2 or systemd for process management
+See [DEPLOY_TO_VPS.md](./DEPLOY_TO_VPS.md) for detailed instructions.
 
-See [QUICKSTART.md](./QUICKSTART.md) for detailed VPS setup instructions.
+---
 
-## 🔧 Troubleshooting
+## 🧪 Testing
 
-### Node Version Issues
+```bash
+# Bot tests (Python)
+cd bot && pytest
 
-**Error:** `EBADENGINE required: { node: '20.x || 22.x' }`
+# Move contract tests
+cd move && sui move test
+
+# Web dApp tests
+cd services/web-dapp && npm test
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Expired Token (Web dApp)
+
+**Error:** "Token expired or invalid"
+
+**Cause:** Linking token is valid for 15 minutes only
+
+**Fix:** Return to Telegram bot and run `/start` again for a fresh link
+
+### Webhook 404/405
+
+**Error:** Telegram webhook returns 404 or 405
+
+**Cause:** nginx not proxying correctly to bot on port 3001
 
 **Fix:**
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# Check nginx config
+sudo nginx -t
+
+# Verify bot is running
+docker-compose logs telegram-bot
+
+# Check port binding
+sudo netstat -tlnp | grep 3001
 ```
 
-### Zod Version Conflict
+### Chat Not Found
 
-**Error:** `ERESOLVE could not resolve zod@4`
+**Error:** "Chat not found" when bot tries to message user
 
-**Fix:** Already resolved in package.json - use zod@3.23.8
+**Cause:** User never sent `/start` to bot
 
-### better-sqlite3 Installation Fails
+**Fix:** User must initiate conversation with bot first
 
-**Cause:** Node 18 too old for better-sqlite3 v12
+### zkLogin Setup Failed
 
-**Fix:** 
-- Upgrade to Node 20+ (recommended)
-- Or: package.json already uses v11.7.0 (Node 18+ compatible)
+**Error:** Google OAuth fails or prover errors
 
-### SQLite Database Not Persisting
+**Fix:**
+1. Verify `VITE_GOOGLE_CLIENT_ID` matches OAuth consent screen
+2. Add authorized redirect URI: `https://caishen.iseethereaper.com/*`
+3. Check Mysten prover URL matches network (testnet vs mainnet)
 
-**Cause:** better-sqlite3 not installed (stub fallback active)
+### Invalid Parameters
 
-**Check:** Look for warning in logs: "better-sqlite3 not available, using stub"
+**Error:** Gemini function call fails with "invalid parameters"
 
-**Fix:** Ensure better-sqlite3 installed successfully after Node upgrade
+**Cause:** Tool schema mismatch or missing required fields
 
-## 📝 License
+**Fix:** Check `bot/src/services/gemini.py` tool definitions match handlers
 
-MIT
+### Static Build Not Updating
+
+**Error:** Web dApp shows old version after deployment
+
+**Fix:**
+```bash
+# Force rebuild and sync
+cd services/web-dapp
+rm -rf out/
+npm run build
+sudo rsync -av --delete out/ /var/www/caishen/web/
+sudo systemctl reload nginx
+```
+
+---
+
+## 📚 Documentation
+
+- 📖 [Product Specification](./AI_Copilot_Wallet_Product_Specification_with_zklogin_microservices.md) - Complete architecture and design
+- ✅ [Implementation Status](./IMPLEMENTATION_STATUS.md) - Development progress (188 checkpoints)
+- 🚀 [Quick Start Guide](./QUICKSTART.md) - Fast-track setup
+- 📦 [Installation Guide](./INSTALLATION.md) - Detailed setup steps
+- 🏗️ [Smart Contracts](./SMART_CONTRACTS.md) - Move contracts documentation
+- 🐳 [Docker Setup](./DOCKER_SETUP.md) - Container orchestration
+- 🌐 [VPS Deployment](./DEPLOY_TO_VPS.md) - Production deployment guide
+
+---
+
+## 🗺️ Roadmap
+
+See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for detailed checkpoints.
+
+**Phase 1: Foundation** (🚧 In Progress - ~60% complete)
+- ✅ Python bot with aiogram
+- ✅ Gemini AI integration
+- ✅ Sui RPC client
+- ✅ PostgreSQL database
+- 🚧 Transaction builder
+- 🚧 NFT service
+
+**Phase 2: Smart Contracts** (✅ Complete)
+- ✅ BatchTransfer contract
+- ✅ ContactRegistry contract
+- ✅ SpendingGuardian contract
+- ⏸️ Deployment to testnet
+- ⏸️ Bot integration
+
+**Phase 3: Web dApp** (🚧 In Progress - ~70% complete)
+- ✅ React + Vite setup
+- ✅ zkLogin flow
+- ✅ Wallet Standard connection
+- ✅ Telegram verification
+- 🚧 Transaction signing UI
+- 📋 Transaction history view
+
+**Phase 4: Production** (📋 Planned)
+- 📋 Rate limiting
+- 📋 Error monitoring (Sentry)
+- 📋 Analytics
+- 📋 Backup/restore
+- 📋 Multi-language support
+
+---
 
 ## 🤝 Contributing
 
-This is an active development project. See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for current progress and roadmap.
+This is an active development project. Contributions welcome!
 
-## 📞 Support
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push to branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+---
+
+## 📝 License
+
+MIT License - see [LICENSE](./LICENSE) file
+
+---
+
+## 📞 Support & Resources
 
 - **Sui Documentation:** https://docs.sui.io/
 - **Telegram Bot API:** https://core.telegram.org/bots/api
 - **Google Gemini:** https://ai.google.dev/gemini-api/docs
+- **Mysten zkLogin:** https://docs.sui.io/concepts/cryptography/zklogin
+- **Project Issues:** https://github.com/Sui-Romanian-Hackathon/Caishen/issues
+
+---
+
+**Built with ❤️ for the Sui ecosystem**
 - `src/services/llm/toolHandlers.ts` — tool execution stubs hooking Sui/contact services.
 - `src/services/sui/client.ts` — SuiClient factory pinned to `SUI_RPC_URL`.
 - `src/services/sui/suiService.ts` — balance lookups via Sui JSON-RPC.

@@ -2,8 +2,8 @@
 
 ## Telegram Bot Natural Language Wallet Assistant for Sui Blockchain
 
-**Document Version:** 0.2.1  
-**Last Updated:** December 10, 2025  
+**Document Version:** 0.4.1  
+**Last Updated:** December 13, 2025  
 **Classification:** Technical Product Specification  
 **Target Platform:** Telegram Bot + External Web dApp  
 **Target Network:** Sui Testnet (development) / Sui Mainnet (production)
