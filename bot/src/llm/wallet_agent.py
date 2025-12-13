@@ -505,7 +505,8 @@ Keep responses short - this is a chat interface, not a document."""
                 "text": str,           # Response to show user
                 "action": str | None,  # Domain/action taken
                 "needs_signing": bool, # If send_sui needs signing link
-                "tx_data": dict | None # Transaction data for signing
+                "tx_data": dict | None, # Transaction data for signing
+                "domain": str | None,  # Classified domain
             }
         """
         initial_state: AgentState = {
@@ -531,6 +532,7 @@ Keep responses short - this is a chat interface, not a document."""
                 "action": tool_name or (domain.value if domain != Domain.conversation else None),
                 "needs_signing": needs_signing,
                 "tx_data": tx_data,
+                "domain": domain.value if domain else None,
             }
 
         except Exception as e:

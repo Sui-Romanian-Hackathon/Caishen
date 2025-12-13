@@ -28,6 +28,7 @@ from src.database.postgres import (
     clear_conversation_history,
 )
 from src.llm.wallet_agent import wallet_agent
+from src.llm.domains import Domain
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -75,6 +76,34 @@ BUTTON_TO_REQUEST = {
     "action_history": "Show my transaction history",
     "action_help": "Help me understand what you can do",
 }
+
+
+def get_suggestion_keyboard_for_domain(domain: Optional[Domain]) -> Optional[InlineKeyboardMarkup]:
+    """Return inline buttons tailored to the classified domain."""
+    if not domain:
+        return None
+
+    if domain == Domain.balance:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💰 Show Balance", callback_data="action_balance")]
+        ])
+    if domain == Domain.payments:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✉️ Send SUI", callback_data="action_send_prompt")]
+        ])
+    if domain == Domain.contacts:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👥 Contacts", callback_data="action_contacts")]
+        ])
+    if domain == Domain.history:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🧾 History", callback_data="action_history")]
+        ])
+    if domain == Domain.help:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Help", callback_data="action_help")]
+        ])
+    return None
 
 
 # ============================================================================
@@ -417,6 +446,12 @@ async def handle_action_callback(callback: CallbackQuery) -> None:
             user_id=user_id,
             wallet_address=wallet_address,
         )
+        domain_value = result.get("domain")
+        domain = None
+        try:
+            domain = Domain(domain_value) if domain_value else None
+        except Exception:
+            domain = None
 
         if result.get("needs_signing") and result.get("tx_data"):
             tx = result["tx_data"]
@@ -432,7 +467,8 @@ async def handle_action_callback(callback: CallbackQuery) -> None:
 
         reply_text = result.get("text", "I didn't quite get that.")
         await add_to_conversation(user_id, "assistant", reply_text)
-        await status_msg.edit_text(reply_text, reply_markup=get_main_menu())
+        suggestion_kb = get_suggestion_keyboard_for_domain(domain) or get_main_menu()
+        await status_msg.edit_text(reply_text, reply_markup=suggestion_kb)
     except Exception as exc:
         logger.error(f"Action {action} failed: {exc}")
         await status_msg.edit_text(f"❌ Error: {exc}", reply_markup=get_main_menu())
@@ -496,6 +532,12 @@ async def process_with_agent(
             user_id=user_id,
             wallet_address=wallet_address,
         )
+        domain_value = result.get("domain")
+        domain = None
+        try:
+            domain = Domain(domain_value) if domain_value else None
+        except Exception:
+            domain = None
 
         if result.get("needs_signing") and result.get("tx_data"):
             tx = result["tx_data"]
@@ -516,10 +558,11 @@ async def process_with_agent(
         reply_text = result.get("text", "I'm not sure how to help with that.")
         await add_to_conversation(user_id, "assistant", reply_text)
 
+        suggestion_kb = get_suggestion_keyboard_for_domain(domain) or get_main_menu()
         if status_msg:
-            await safe_edit(status_msg, reply_text, reply_markup=get_main_menu())
+            await safe_edit(status_msg, reply_text, reply_markup=suggestion_kb)
         else:
-            await safe_answer(message, reply_text, reply_markup=get_main_menu())
+            await safe_answer(message, reply_text, reply_markup=suggestion_kb)
 
     except Exception as exc:
         logger.error(f"Agent processing failed: {exc}")
