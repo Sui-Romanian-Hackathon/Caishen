@@ -7,7 +7,7 @@ import {
   useSignAndExecuteTransaction,
   useSuiClient
 } from '@mysten/dapp-kit';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { getFullnodeUrl } from '@mysten/sui/client';
 import { Transaction } from '@mysten/sui/transactions';
 import {
   generateNonce,
@@ -21,8 +21,12 @@ import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { useEffect, useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LinkPage } from './LinkPage';
-import './app-layout.css';
-import './link-page.css';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Check } from 'lucide-react';
 
 // Configuration from environment variables (build-time)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
@@ -457,240 +461,322 @@ function Page() {
     }
   };
 
+  // Toggle button classes
+  const toggleBaseClasses = 
+    "px-4 py-2 rounded-lg text-sm transition-all border-2 border-toggle-border " +
+    "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-toggle-border focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  const toggleActiveClasses = "bg-toggle-active text-toggle-active-foreground font-bold";
+  const toggleInactiveClasses = "bg-transparent text-toggle-inactive font-medium hover:bg-toggle-inactive/10";
+
   return (
-    <div className="page">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">AI Copilot Wallet</div>
-          <h1>Send SUI with Slush or any Sui wallet</h1>
-          <p className="muted">
-            Connect your wallet, build a transfer, and sign. zkLogin flow is available for users who
-            provide an OAuth JWT.
-          </p>
-        </div>
-        <ConnectButton />
-      </header>
-
-      <main className="grid">
-        {/* Loading state for pending transaction */}
-        {pendingTxLoading && (
-          <div className="pending-tx-banner loading">
-            Loading transaction details...
+    <div className="min-h-screen bg-background p-6 md:p-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+          <div>
+            <p className="text-xs text-primary uppercase tracking-wider mb-2">Caishen</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-3">
+              Send SUI with Slush or any Sui wallet
+            </h1>
+            <p className="text-muted-foreground text-sm max-w-xl">
+              Connect your wallet, build a transfer, and sign. zkLogin flow is available for users who provide an OAuth JWT.
+            </p>
           </div>
-        )}
-
-        {/* Error state for pending transaction */}
-        {pendingTxError && (
-          <div className="pending-tx-banner error">
-            {pendingTxError}
+          <div className="sm:self-center">
+            <ConnectButton />
           </div>
-        )}
+        </header>
 
-        {/* Expiry warning */}
-        {pendingTxExpiry && !pendingTxError && (
-          <div className="pending-tx-banner info">
-            Transaction from Telegram bot. Expires {new Date(pendingTxExpiry).toLocaleTimeString()}.
-          </div>
-        )}
-
-        <section className="card">
-          <div className="card-head">
-            <div className="eyebrow">Transfer</div>
-            <h2>Send funds</h2>
-          </div>
-
-          <div className="tabs">
-            <button
-              className={mode === 'wallet' ? 'tab active' : 'tab'}
-              onClick={() => setMode('wallet')}
-            >
-              Wallet
-            </button>
-            <button
-              className={mode === 'zklogin' ? 'tab active' : 'tab'}
-              onClick={() => setMode('zklogin')}
-            >
-              zkLogin
-            </button>
-          </div>
-
-          {senderParam && (
-            <div className="info">
-              <div><strong>Sender (from link):</strong> <code>{senderParam}</code></div>
-              {account?.address && account.address.toLowerCase() !== senderParam.toLowerCase() && (
-                <div className="status error">Connected wallet differs from the sender specified in this link.</div>
-              )}
-              {account?.address && account.address.toLowerCase() === senderParam.toLowerCase() && (
-                <div className="status ok">Connected wallet matches the sender in this link.</div>
-              )}
+        {/* Main Content */}
+        <main className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Loading state for pending transaction */}
+          {pendingTxLoading && (
+            <div className="col-span-full bg-blue-500/15 border border-blue-500/30 text-blue-400 rounded-lg p-4 text-center text-sm">
+              Loading transaction details...
             </div>
           )}
 
-          {mode === 'wallet' ? (
-            <form className="form" onSubmit={onSubmit}>
-              <label>
-                <span>Recipient</span>
-                <input
-                  required
-                  value={form.recipient}
-                  onChange={(e) => setForm((f) => ({ ...f, recipient: e.target.value.trim() }))}
-                  placeholder="0x..."
-                />
-              </label>
-              <label>
-                <span>Amount (SUI)</span>
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  step="0.000001"
-                  value={form.amount}
-                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                  placeholder="0.1"
-                />
-                {Number(form.amount) > 100 && (
-                  <span className="warning">⚠️ Large amount - confirm before sending</span>
-                )}
-              </label>
-              <label>
-                <span>Memo (optional)</span>
-                <input
-                  value={form.memo}
-                  onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))}
-                  placeholder="Dinner split"
-                />
-              </label>
-
-              {gasEstimate && (
-                <div className="gas-estimate">
-                  Estimated gas: ~{gasEstimate} SUI
-                </div>
-              )}
-
-              <div className="actions">
-                <button type="submit" disabled={isPending || !account}>
-                  {isPending ? 'Sending…' : 'Send SUI'}
-                </button>
-                {status && <div className="status ok">{status}</div>}
-                {error && <div className="status error">{error}</div>}
-                {digest && (
-                  <div className="status ok">
-                    Digest:{' '}
-                    <a href={`https://suiscan.xyz/${SUI_NETWORK}/tx/${digest}`} target="_blank" rel="noopener noreferrer">
-                      {digest.slice(0, 16)}...
-                    </a>
-                  </div>
-                )}
-              </div>
-            </form>
-          ) : (
-            <form className="form" onSubmit={onSubmitZk}>
-              {/* Google OAuth button */}
-              {!jwtToken && GOOGLE_CLIENT_ID && (
-                <div className="oauth-section">
-                  <button type="button" className="google-btn" onClick={startGoogleOAuth}>
-                    🔐 Login with Google
-                  </button>
-                  <p className="muted">Or paste a JWT manually below</p>
-                </div>
-              )}
-
-              {zkAddress && (
-                <div className="info zkaddress">
-                  <strong>zkLogin Address:</strong>
-                  <code>{zkAddress.slice(0, 10)}...{zkAddress.slice(-8)}</code>
-                </div>
-              )}
-
-              <label>
-                <span>Recipient</span>
-                <input
-                  required
-                  value={form.recipient}
-                  onChange={(e) => setForm((f) => ({ ...f, recipient: e.target.value.trim() }))}
-                  placeholder="0x..."
-                />
-              </label>
-              <label>
-                <span>Amount (SUI)</span>
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  step="0.000001"
-                  value={form.amount}
-                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                  placeholder="0.1"
-                />
-                {Number(form.amount) > 100 && (
-                  <span className="warning">⚠️ Large amount - confirm before sending</span>
-                )}
-              </label>
-              <label>
-                <span>JWT (from OAuth provider)</span>
-                <textarea
-                  value={jwtToken}
-                  onChange={(e) => setJwtToken(e.target.value.trim())}
-                  placeholder="Paste the OAuth JWT here or use Google login above"
-                  rows={3}
-                />
-              </label>
-
-              <details className="advanced-options">
-                <summary>Advanced Options</summary>
-                <label>
-                  <span>Salt (optional)</span>
-                  <input
-                    value={salt}
-                    onChange={(e) => setSalt(e.target.value.trim())}
-                    placeholder="Leave blank to fetch from salt service"
-                  />
-                </label>
-                <div className="config-info">
-                  <small>Using {SUI_NETWORK} network</small>
-                </div>
-              </details>
-
-              {gasEstimate && (
-                <div className="gas-estimate">
-                  Estimated gas: ~{gasEstimate} SUI
-                </div>
-              )}
-
-              <div className="actions">
-                <button type="submit" disabled={!jwtToken}>
-                  {zkStatus ? 'Processing...' : 'Sign & Send with zkLogin'}
-                </button>
-                {zkStatus && <div className="status ok">{zkStatus}</div>}
-                {zkError && <div className="status error">{zkError}</div>}
-                {zkDigest && (
-                  <div className="status ok">
-                    ✅ Digest:{' '}
-                    <a href={`https://suiscan.xyz/${SUI_NETWORK}/tx/${zkDigest}`} target="_blank" rel="noopener noreferrer">
-                      {zkDigest.slice(0, 16)}...
-                    </a>
-                  </div>
-                )}
-              </div>
-            </form>
-          )}
-        </section>
-
-        <section className="card">
-          <div className="card-head">
-            <div className="eyebrow">Wallet</div>
-            <h2>Current account</h2>
-          </div>
-          {account ? (
-            <div className="info">
-              <div>Address: {account.address}</div>
-              <div>Wallet: {account.label}</div>
+          {/* Error state for pending transaction */}
+          {pendingTxError && (
+            <div className="col-span-full bg-destructive/15 border border-destructive/30 text-destructive rounded-lg p-4 text-center text-sm">
+              {pendingTxError}
             </div>
-          ) : (
-            <div className="muted">Connect a wallet to start.</div>
           )}
-        </section>
-      </main>
+
+          {/* Expiry warning */}
+          {pendingTxExpiry && !pendingTxError && (
+            <div className="col-span-full bg-primary/10 border border-primary/30 text-primary rounded-lg p-4 text-center text-sm">
+              Transaction from Telegram bot. Expires {new Date(pendingTxExpiry).toLocaleTimeString()}.
+            </div>
+          )}
+
+          {/* Send Funds Card */}
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Transfer</p>
+              </div>
+              <CardTitle className="text-xl">Send funds</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* Tab Switcher */}
+              <div className="flex gap-2 mb-6" role="group" aria-label="Transfer method">
+                <button
+                  type="button"
+                  aria-pressed={mode === 'wallet'}
+                  onClick={() => setMode('wallet')}
+                  className={`${toggleBaseClasses} ${
+                    mode === 'wallet' ? toggleActiveClasses : toggleInactiveClasses
+                  } flex items-center gap-1.5`}
+                >
+                  {mode === 'wallet' && (
+                    <Check size={16} className="text-toggle-active-foreground" aria-hidden="true" />
+                  )}
+                  Wallet
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mode === 'zklogin'}
+                  onClick={() => setMode('zklogin')}
+                  className={`${toggleBaseClasses} ${
+                    mode === 'zklogin' ? toggleActiveClasses : toggleInactiveClasses
+                  } flex items-center gap-1.5`}
+                >
+                  {mode === 'zklogin' && (
+                    <Check size={16} className="text-toggle-active-foreground" aria-hidden="true" />
+                  )}
+                  zkLogin
+                </button>
+              </div>
+
+              {senderParam && (
+                <div className="mb-4 p-3 bg-secondary/50 rounded-lg text-sm">
+                  <div><strong>Sender (from link):</strong> <code className="text-xs bg-muted px-2 py-1 rounded">{senderParam}</code></div>
+                  {account?.address && account.address.toLowerCase() !== senderParam.toLowerCase() && (
+                    <div className="text-destructive mt-2">Connected wallet differs from the sender specified in this link.</div>
+                  )}
+                  {account?.address && account.address.toLowerCase() === senderParam.toLowerCase() && (
+                    <div className="text-primary mt-2">Connected wallet matches the sender in this link.</div>
+                  )}
+                </div>
+              )}
+
+              {mode === 'wallet' ? (
+                <form className="space-y-4" onSubmit={onSubmit}>
+                  <div className="space-y-2">
+                    <Label htmlFor="recipient">Recipient</Label>
+                    <Input
+                      id="recipient"
+                      required
+                      value={form.recipient}
+                      onChange={(e) => setForm((f) => ({ ...f, recipient: e.target.value.trim() }))}
+                      placeholder="0x..."
+                      className="bg-input border-border"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="amount">Amount (SUI)</Label>
+                    <Input
+                      id="amount"
+                      required
+                      type="number"
+                      min="0"
+                      step="0.000001"
+                      value={form.amount}
+                      onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                      placeholder="0.1"
+                      className="bg-input border-border"
+                    />
+                    {Number(form.amount) > 100 && (
+                      <span className="text-yellow-500 text-xs">⚠️ Large amount - confirm before sending</span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="memo">Memo (optional)</Label>
+                    <Input
+                      id="memo"
+                      value={form.memo}
+                      onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))}
+                      placeholder="Dinner split"
+                      className="bg-input border-border"
+                    />
+                  </div>
+
+                  {gasEstimate && (
+                    <div className="bg-muted/50 p-3 rounded-lg text-sm text-muted-foreground">
+                      Estimated gas: ~{gasEstimate} SUI
+                    </div>
+                  )}
+
+                  <div className="space-y-3 pt-2">
+                    <Button 
+                      type="submit" 
+                      disabled={isPending || !account}
+                      className="w-full gradient-button text-primary-foreground font-semibold py-6"
+                    >
+                      {isPending ? 'Sending…' : 'Send SUI'}
+                    </Button>
+                    {status && <div className="text-primary text-sm">{status}</div>}
+                    {error && <div className="text-destructive text-sm">{error}</div>}
+                    {digest && (
+                      <div className="text-primary text-sm">
+                        Digest:{' '}
+                        <a 
+                          href={`https://suiscan.xyz/${SUI_NETWORK}/tx/${digest}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="underline hover:text-primary/80"
+                        >
+                          {digest.slice(0, 16)}...
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </form>
+              ) : (
+                <form className="space-y-4" onSubmit={onSubmitZk}>
+                  {/* Google OAuth button */}
+                  {!jwtToken && GOOGLE_CLIENT_ID && (
+                    <div className="flex flex-col items-center gap-3 p-4 border border-dashed border-border rounded-lg">
+                      <Button 
+                        type="button" 
+                        onClick={startGoogleOAuth}
+                        className="bg-[#4285f4] hover:bg-[#3367d6] text-white"
+                      >
+                        🔐 Login with Google
+                      </Button>
+                      <p className="text-muted-foreground text-sm">Or paste a JWT manually below</p>
+                    </div>
+                  )}
+
+                  {zkAddress && (
+                    <div className="bg-primary/10 border border-primary/30 p-3 rounded-lg">
+                      <strong className="text-xs text-muted-foreground uppercase tracking-wide block mb-1">zkLogin Address:</strong>
+                      <code className="text-sm">{zkAddress.slice(0, 10)}...{zkAddress.slice(-8)}</code>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zk-recipient">Recipient</Label>
+                    <Input
+                      id="zk-recipient"
+                      required
+                      value={form.recipient}
+                      onChange={(e) => setForm((f) => ({ ...f, recipient: e.target.value.trim() }))}
+                      placeholder="0x..."
+                      className="bg-input border-border"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="zk-amount">Amount (SUI)</Label>
+                    <Input
+                      id="zk-amount"
+                      required
+                      type="number"
+                      min="0"
+                      step="0.000001"
+                      value={form.amount}
+                      onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                      placeholder="0.1"
+                      className="bg-input border-border"
+                    />
+                    {Number(form.amount) > 100 && (
+                      <span className="text-yellow-500 text-xs">⚠️ Large amount - confirm before sending</span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="jwt">JWT (from OAuth provider)</Label>
+                    <Textarea
+                      id="jwt"
+                      value={jwtToken}
+                      onChange={(e) => setJwtToken(e.target.value.trim())}
+                      placeholder="Paste the OAuth JWT here or use Google login above"
+                      rows={3}
+                      className="bg-input border-border font-mono text-xs"
+                    />
+                  </div>
+
+                  <details className="text-sm">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-2">
+                      Advanced Options
+                    </summary>
+                    <div className="space-y-3 pt-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="salt">Salt (optional)</Label>
+                        <Input
+                          id="salt"
+                          value={salt}
+                          onChange={(e) => setSalt(e.target.value.trim())}
+                          placeholder="Leave blank to fetch from salt service"
+                          className="bg-input border-border"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Using {SUI_NETWORK} network</p>
+                    </div>
+                  </details>
+
+                  {gasEstimate && (
+                    <div className="bg-muted/50 p-3 rounded-lg text-sm text-muted-foreground">
+                      Estimated gas: ~{gasEstimate} SUI
+                    </div>
+                  )}
+
+                  <div className="space-y-3 pt-2">
+                    <Button 
+                      type="submit" 
+                      disabled={!jwtToken}
+                      className="w-full gradient-button text-primary-foreground font-semibold py-6"
+                    >
+                      {zkStatus ? 'Processing...' : 'Sign & Send with zkLogin'}
+                    </Button>
+                    {zkStatus && <div className="text-primary text-sm">{zkStatus}</div>}
+                    {zkError && <div className="text-destructive text-sm">{zkError}</div>}
+                    {zkDigest && (
+                      <div className="text-primary text-sm">
+                        ✅ Digest:{' '}
+                        <a 
+                          href={`https://suiscan.xyz/${SUI_NETWORK}/tx/${zkDigest}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="underline hover:text-primary/80"
+                        >
+                          {zkDigest.slice(0, 16)}...
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Current Account Card */}
+          <Card className="bg-card border-border h-fit">
+            <CardHeader className="pb-4">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Wallet</p>
+              <CardTitle className="text-xl">Current account</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {account ? (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Address</p>
+                    <code className="text-sm bg-muted/50 px-3 py-2 rounded-lg block break-all">{account.address}</code>
+                  </div>
+                  {account.label && (
+                    <div>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Wallet</p>
+                      <p className="text-sm">{account.label}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">Connect a wallet to start.</p>
+              )}
+            </CardContent>
+          </Card>
+        </main>
+      </div>
     </div>
   );
 }
