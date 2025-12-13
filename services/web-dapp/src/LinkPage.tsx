@@ -10,6 +10,8 @@ import {
   jwtToAddress
 } from '@mysten/sui/zklogin';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
 // Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
@@ -352,141 +354,185 @@ export function LinkPage() {
 
   // Render based on step
   return (
-    <div className="link-page">
-      <header className="link-header">
-        <h1>Connect Your Wallet</h1>
-        {session && (
-          <p className="welcome">
-            Welcome{session.telegramFirstName ? `, ${session.telegramFirstName}` : ''}!
-            {session.telegramUsername && <span className="username"> (@{session.telegramUsername})</span>}
-          </p>
-        )}
-      </header>
-
-      <main className="link-content">
-        {step === 'loading' && (
-          <div className="step-card">
-            <div className="loading">Loading...</div>
-          </div>
-        )}
-
-        {step === 'error' && (
-          <div className="step-card error-card">
-            <h2>Error</h2>
-            <p>{error}</p>
-            <div className="actions">
-              <button className="btn" onClick={resetLinkingFlow}>
-                Try Again
-              </button>
-              <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=reset`} className="btn">
-                Get a Fresh Link in Telegram
-              </a>
-            </div>
-          </div>
-        )}
-
-        {step === 'choose_wallet' && (
-          <div className="step-card">
-            <h2>Step 1: Choose Your Wallet</h2>
-            <p className="subtitle">Select how you want to connect your wallet</p>
-
-            <div className="wallet-options">
-              <div className="wallet-option">
-                <h3>🔐 Create zkLogin Wallet</h3>
-                <p>Use your Google account to create a new wallet. No seed phrases needed!</p>
-                <button className="btn btn-primary" onClick={startZkLogin}>
-                  Continue with Google
-                </button>
-              </div>
-
-              <div className="divider">
-                <span>OR</span>
-              </div>
-
-              <div className="wallet-option">
-                <h3>👛 Use Existing Wallet</h3>
-                <p>Connect your Slush wallet or any other Sui-compatible wallet</p>
-                <ConnectButton />
-              </div>
-            </div>
-
-            {status && <div className="status">{status}</div>}
-            {error && <div className="error">{error}</div>}
-          </div>
-        )}
-
-        {step === 'zklogin_flow' && (
-          <div className="step-card">
-            <h2>Creating Your Wallet</h2>
-            <div className="loading">{status || 'Processing...'}</div>
-            {zkAddress && (
-              <div className="address-preview">
-                <strong>Your new wallet address:</strong>
-                <code>{zkAddress}</code>
-              </div>
-            )}
-          </div>
-        )}
-
-        {step === 'telegram_verify' && (
-          <div className="step-card">
-            <h2>Step 2: Verify Your Telegram</h2>
-            <p className="subtitle">
-              Click below to confirm this is your Telegram account
+    <div className="min-h-screen bg-background flex flex-col">
+      <div className="max-w-xl mx-auto w-full p-6 flex-1 flex flex-col">
+        {/* Header */}
+        <header className="text-center mb-8">
+          <p className="text-xs text-primary uppercase tracking-wider mb-3">Caishen</p>
+          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+            Connect Your Wallet
+          </h1>
+          {session && (
+            <p className="text-muted-foreground">
+              Welcome{session.telegramFirstName ? `, ${session.telegramFirstName}` : ''}!
+              {session.telegramUsername && <span className="text-primary"> (@{session.telegramUsername})</span>}
             </p>
+          )}
+        </header>
 
-            {session?.walletAddress && (
-              <div className="wallet-connected">
-                <span className="check">✓</span>
-                Wallet connected: <code>{session.walletAddress}</code>
-              </div>
-            )}
+        {/* Main Content */}
+        <main className="flex-1">
+          {step === 'loading' && (
+            <Card className="bg-card border-border">
+              <CardContent className="py-12">
+                <div className="text-center text-primary">Loading...</div>
+              </CardContent>
+            </Card>
+          )}
 
-            <div id="telegram-login-container" className="telegram-widget">
-              {/* Telegram widget loads here */}
-            </div>
+          {step === 'error' && (
+            <Card className="bg-destructive/5 border-destructive/30">
+              <CardHeader>
+                <CardTitle className="text-xl">Error</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-destructive">{error}</p>
+                <div className="flex flex-col gap-3">
+                  <Button onClick={resetLinkingFlow} variant="secondary">
+                    Try Again
+                  </Button>
+                  <Button asChild variant="outline">
+                    <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=reset`}>
+                      Get a Fresh Link in Telegram
+                    </a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-            {status && <div className="status">{status}</div>}
-            {error && <div className="error">{error}</div>}
+          {step === 'choose_wallet' && (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-xl">Step 1: Choose Your Wallet</CardTitle>
+                <CardDescription>Select how you want to connect your wallet</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* zkLogin Option */}
+                <div className="p-5 border border-border rounded-xl text-center space-y-4">
+                  <h3 className="text-lg font-semibold">🔐 Create zkLogin Wallet</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Use your Google account to create a new wallet. No seed phrases needed!
+                  </p>
+                  <Button 
+                    onClick={startZkLogin}
+                    className="gradient-button text-primary-foreground font-semibold"
+                  >
+                    Continue with Google
+                  </Button>
+                </div>
 
-            <p className="security-note">
-              This confirms you own this Telegram account. Your data is verified using
-              Telegram's secure authentication system.
-            </p>
-          </div>
-        )}
+                {/* Divider */}
+                <div className="flex items-center gap-4 text-muted-foreground">
+                  <div className="flex-1 h-px bg-border"></div>
+                  <span className="text-sm">OR</span>
+                  <div className="flex-1 h-px bg-border"></div>
+                </div>
 
-        {step === 'completed' && (
-          <div className="step-card success-card">
-            <div className="success-icon">✅</div>
-            <h2>All Done!</h2>
-            <p>Your wallet is now linked to your Telegram account.</p>
+                {/* External Wallet Option */}
+                <div className="p-5 border border-border rounded-xl text-center space-y-4">
+                  <h3 className="text-lg font-semibold">👛 Use Existing Wallet</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Connect your Slush wallet or any other Sui-compatible wallet
+                  </p>
+                  <ConnectButton />
+                </div>
 
-            {session?.walletAddress && (
-              <div className="final-details">
-                <div><strong>Telegram:</strong> @{session.telegramUsername}</div>
-                <div><strong>Wallet:</strong> <code>{session.walletAddress}</code></div>
-              </div>
-            )}
+                {status && <div className="text-center text-primary text-sm">{status}</div>}
+                {error && <div className="text-center text-destructive text-sm">{error}</div>}
+              </CardContent>
+            </Card>
+          )}
 
-            <div className="actions">
-              <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=linked`} className="btn btn-primary">
-                Return to Telegram Bot
-              </a>
-              <button className="btn" onClick={resetLinkingFlow}>
-                Connect Different Wallet
-              </button>
-              <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=reset`} className="btn">
-                Get a New Linking URL
-              </a>
-            </div>
-          </div>
-        )}
-      </main>
+          {step === 'zklogin_flow' && (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-xl">Creating Your Wallet</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="text-center text-primary py-4">{status || 'Processing...'}</div>
+                {zkAddress && (
+                  <div className="bg-muted/50 p-4 rounded-lg text-center">
+                    <strong className="block text-xs text-muted-foreground mb-2">Your new wallet address:</strong>
+                    <code className="text-sm break-all">{zkAddress}</code>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-      <footer className="link-footer">
-        <p>Powered by Sui zkLogin • Secure & Non-Custodial</p>
-      </footer>
+          {step === 'telegram_verify' && (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-xl">Step 2: Verify Your Telegram</CardTitle>
+                <CardDescription>
+                  Click below to confirm this is your Telegram account
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {session?.walletAddress && (
+                  <div className="flex items-center justify-center gap-2 p-3 bg-primary/10 rounded-lg text-sm">
+                    <span className="text-primary">✓</span>
+                    Wallet connected: <code className="text-xs">{session.walletAddress}</code>
+                  </div>
+                )}
+
+                <div id="telegram-login-container" className="flex justify-center py-6 min-h-[60px]">
+                  {/* Telegram widget loads here */}
+                </div>
+
+                {status && <div className="text-center text-primary text-sm">{status}</div>}
+                {error && <div className="text-center text-destructive text-sm">{error}</div>}
+
+                <p className="text-center text-xs text-muted-foreground">
+                  This confirms you own this Telegram account. Your data is verified using
+                  Telegram's secure authentication system.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 'completed' && (
+            <Card className="bg-primary/5 border-primary/30 text-center">
+              <CardContent className="py-8 space-y-6">
+                <div className="text-5xl">✅</div>
+                <div>
+                  <h2 className="text-2xl font-bold text-foreground mb-2">All Done!</h2>
+                  <p className="text-muted-foreground">Your wallet is now linked to your Telegram account.</p>
+                </div>
+
+                {session?.walletAddress && (
+                  <div className="bg-muted/50 p-4 rounded-lg text-left space-y-2">
+                    <div><strong className="text-muted-foreground">Telegram:</strong> @{session.telegramUsername}</div>
+                    <div><strong className="text-muted-foreground">Wallet:</strong> <code className="text-xs break-all">{session.walletAddress}</code></div>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-3 pt-2">
+                  <Button asChild className="gradient-button text-primary-foreground font-semibold">
+                    <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=linked`}>
+                      Return to Telegram Bot
+                    </a>
+                  </Button>
+                  <Button onClick={resetLinkingFlow} variant="secondary">
+                    Connect Different Wallet
+                  </Button>
+                  <Button asChild variant="outline">
+                    <a href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=reset`}>
+                      Get a New Linking URL
+                    </a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </main>
+
+        {/* Footer */}
+        <footer className="text-center py-6 mt-8">
+          <p className="text-muted-foreground text-xs">Powered by Sui zkLogin • Secure & Non-Custodial</p>
+        </footer>
+      </div>
     </div>
   );
 }
