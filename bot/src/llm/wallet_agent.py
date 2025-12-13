@@ -6,7 +6,6 @@ Flow:
 """
 
 import asyncio
-import inspect
 import logging
 import re
 from typing import Any, Dict, List, Optional, TypedDict, Literal
@@ -401,27 +400,30 @@ ALWAYS call a tool - don't respond with just text."""
             state["result"] = f"❌ Unknown action: {tool_name}"
             return state
 
-        # Auto-inject context (user_id, wallet_address) if needed
-        # ALWAYS override these with correct values - LLM may hallucinate addresses
-        context = {
-            "user_id": state.get("user_id"),
-            "wallet_address": state.get("wallet_address"),
-        }
+        # ALWAYS inject context values - LLM hallucinates user_id and wallet_address
+        # Don't rely on signature inspection - just force correct values
+        context_user_id = state.get("user_id")
+        context_wallet = state.get("wallet_address")
+        
+        # Tools that need wallet_address
+        wallet_tools = ["get_balance", "send_sui", "get_transaction_history", "get_nfts"]
+        # Tools that need user_id
+        user_tools = ["list_contacts", "add_new_contact", "delete_contact", "send_sui", "reset_conversation"]
+        
+        # Force inject correct values (override any LLM hallucinations)
+        if tool_name in wallet_tools and context_wallet:
+            old_val = tool_args.get("wallet_address")
+            if old_val and old_val != context_wallet:
+                logger.info(f"Overriding LLM wallet_address={old_val} with correct value")
+            tool_args["wallet_address"] = context_wallet
+            
+        if tool_name in user_tools and context_user_id:
+            old_val = tool_args.get("user_id")
+            if old_val and old_val != context_user_id:
+                logger.info(f"Overriding LLM user_id={old_val} with correct value")
+            tool_args["user_id"] = context_user_id
 
-        try:
-            func = tool.func if hasattr(tool, 'func') else tool
-            sig = inspect.signature(func)
-            for param in sig.parameters:
-                if param in context and context[param] is not None:
-                    # ALWAYS use context value for user_id and wallet_address
-                    # LLM may hallucinate or pass malformed values
-                    if param in tool_args and tool_args[param] != context[param]:
-                        logger.debug(f"Overriding LLM-provided {param}={tool_args[param]} with context value")
-                    tool_args[param] = context[param]
-        except Exception as e:
-            logger.warning(f"Could not inspect tool signature: {e}")
-
-        logger.debug(f"Final tool_args for {tool_name}: {tool_args}")
+        logger.info(f"Final tool_args for {tool_name}: {tool_args}")
 
         # Check if wallet_address is required but still missing
         if "wallet_address" in tool_args or tool_name in ["get_balance", "send_sui", "get_transaction_history", "get_nfts"]:
