@@ -77,6 +77,12 @@ const store = new Map<string, Session>();
 setInterval(() => cleanExpired(store), 60_000);
 ```
 
+### What Ships in This Fast-Forward
+- **Linking store invariants**: exported helpers `isExpired()`, `pruneExpiredSessions()`, and constants `DEFAULT_TTL_MINUTES`, `CLEANUP_INTERVAL_MS` to keep tests and runtime behavior in sync.
+- **Cleanup safety**: `startCleanupTimer()` is idempotent; `pruneExpiredSessions()` can be called manually in shutdown hooks or tests.
+- **Test harness**: unit + integration Vitest suites (`tests/unit/linking/*.test.ts`, `tests/integration/fullFlow.test.ts`), plus `vitest.config.ts` tuned for node env with mocks reset between cases.
+- **Developer workflow**: `npm run test:ci` and `npm run regression` scripts to keep the flow green before commits.
+
 ---
 
 ## ✅ Success Criteria (Define FIRST)
@@ -230,6 +236,9 @@ npm run test:unit
 # Run specific test file
 npm run test -- tests/unit/linking/session.test.ts
 
+# CI-style aggregate (unit + integration)
+npm run test:ci
+
 # Run with coverage
 npm run test:coverage
 
@@ -238,6 +247,9 @@ npm run test:integration
 
 # Run FULL regression suite
 npm run test:all
+
+# Developer-friendly wrapper (prints summary)
+npm run regression
 ```
 
 ---

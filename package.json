@@ -13,8 +13,10 @@
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
+    "test:ci": "npm run test:unit && npm run test:integration",
     "test:coverage": "vitest run --coverage",
-    "test:all": "vitest run && echo '✅ All tests passed!'",
+    "test:update": "vitest -u",
+    "test:all": "npm run test:ci && echo '✅ All tests passed!'",
     "regression": "./scripts/regression-check.sh"
   },
   "repository": {
@@ -47,6 +49,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^24.10.2",
     "@types/pg": "^8.16.0",
+    "@vitest/coverage-v8": "^1.6.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^1.6.0"

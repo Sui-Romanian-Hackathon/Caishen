@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import logger from '../../utils/logger';
 
+export type LinkingStatus = 'pending_wallet' | 'pending_telegram_confirm' | 'completed' | 'expired';
+
 export interface LinkingSession {
   token: string;
   telegramId: string;
@@ -15,7 +17,7 @@ export interface LinkingSession {
   zkLoginSalt?: string;
   zkLoginSub?: string;  // Google subject ID
   // Status
-  status: 'pending_wallet' | 'pending_telegram_confirm' | 'completed' | 'expired';
+  status: LinkingStatus;
 }
 
 // ============================================================================
@@ -29,8 +31,38 @@ const store = new Map<string, LinkingSession>();
 const byTelegramId = new Map<string, string>(); // telegramId -> token
 
 // Cleanup configuration
-const CLEANUP_INTERVAL_MS = 60_000; // 1 minute
+export const CLEANUP_INTERVAL_MS = 60_000; // 1 minute
+export const DEFAULT_TTL_MINUTES = 15;
 let cleanupTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Return true if the session is expired compared to a given timestamp.
+ */
+export function isExpired(session: LinkingSession, now = Date.now()): boolean {
+  return session.expiresAt <= now;
+}
+
+/**
+ * Remove expired sessions and return the number removed.
+ * Exposed for tests and manual maintenance (e.g., during graceful shutdown).
+ */
+export function pruneExpiredSessions(now = Date.now()): number {
+  let cleaned = 0;
+
+  for (const [token, session] of store) {
+    if (isExpired(session, now)) {
+      store.delete(token);
+      byTelegramId.delete(session.telegramId);
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    logger.debug({ cleaned }, 'Pruned expired linking sessions');
+  }
+
+  return cleaned;
+}
 
 /**
  * Start the automatic cleanup timer
@@ -40,20 +72,7 @@ export function startCleanupTimer(): void {
   if (cleanupTimer) return;
 
   cleanupTimer = setInterval(() => {
-    const now = Date.now();
-    let cleaned = 0;
-
-    for (const [token, session] of store) {
-      if (session.expiresAt < now) {
-        store.delete(token);
-        byTelegramId.delete(session.telegramId);
-        cleaned++;
-      }
-    }
-
-    if (cleaned > 0) {
-      logger.debug({ cleaned }, 'Cleaned expired linking sessions');
-    }
+    pruneExpiredSessions();
   }, CLEANUP_INTERVAL_MS);
 }
 
@@ -73,6 +92,7 @@ export function stopCleanupTimer(): void {
 export function clearAllSessions(): void {
   store.clear();
   byTelegramId.clear();
+  // Keep timer state unchanged; tests may opt to stop/start explicitly
 }
 
 // Start cleanup on module load
@@ -86,7 +106,8 @@ export function createLinkingSession(
   telegramId: string,
   telegramUsername: string | null,
   telegramFirstName: string | null,
-  ttlMinutes = 15
+  ttlMinutes = DEFAULT_TTL_MINUTES,
+  now: number = Date.now()
 ): LinkingSession {
   // Invalidate any existing session for this user
   const existingToken = byTelegramId.get(telegramId);
@@ -95,7 +116,6 @@ export function createLinkingSession(
   }
 
   const token = crypto.randomBytes(24).toString('base64url'); // URL-safe token
-  const now = Date.now();
 
   const session: LinkingSession = {
     token,
@@ -130,9 +150,8 @@ export function getLinkingSession(token: string): LinkingSession | null {
   }
 
   // Check expiration
-  if (session.expiresAt < Date.now()) {
-    store.delete(token);
-    byTelegramId.delete(session.telegramId);
+  if (isExpired(session)) {
+    pruneExpiredSessions(); // keep indexes consistent
     return null;
   }
 

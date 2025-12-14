@@ -17,7 +17,11 @@ import {
   getLinkingSessionCount,
   clearAllSessions,
   stopCleanupTimer,
-  startCleanupTimer
+  startCleanupTimer,
+  pruneExpiredSessions,
+  isExpired,
+  DEFAULT_TTL_MINUTES,
+  CLEANUP_INTERVAL_MS
 } from '../../../src/services/linking/linkingStore';
 
 describe('SC-1: Linking Session Management', () => {
@@ -41,7 +45,7 @@ describe('SC-1: Linking Session Management', () => {
 
       const session = createLinkingSession('123456', 'testuser', 'TestName');
 
-      expect(session.expiresAt).toBe(now + 15 * 60 * 1000);
+      expect(session.expiresAt).toBe(now + DEFAULT_TTL_MINUTES * 60 * 1000);
       expect(session.status).toBe('pending_wallet');
     });
 
@@ -102,6 +106,7 @@ describe('SC-1: Linking Session Management', () => {
 
       const retrieved = getLinkingSession(session.token);
       expect(retrieved).toBeNull();
+      expect(pruneExpiredSessions()).toBe(0); // already cleaned
     });
 
     it('should return session if not yet expired', () => {
@@ -112,6 +117,7 @@ describe('SC-1: Linking Session Management', () => {
 
       const retrieved = getLinkingSession(session.token);
       expect(retrieved).not.toBeNull();
+      expect(isExpired(session, Date.now())).toBe(false);
     });
 
     it('should clean up by-telegram-id index when session expires', () => {
@@ -122,6 +128,22 @@ describe('SC-1: Linking Session Management', () => {
 
       const byId = getLinkingSessionByTelegramId('123456');
       expect(byId).toBeNull();
+    });
+
+    it('pruneExpiredSessions should remove and count expired sessions', () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+
+      const session = createLinkingSession('999', 'user', 'Name', 1, now);
+      expect(getLinkingSessionCount()).toBe(1);
+
+      // Jump to after TTL
+      vi.setSystemTime(now + 2 * 60 * 1000);
+      const pruned = pruneExpiredSessions(now + 2 * 60 * 1000);
+
+      expect(pruned).toBe(1);
+      expect(getLinkingSession(session.token)).toBeNull();
+      expect(getLinkingSessionCount()).toBe(0);
     });
   });
 
@@ -191,6 +213,16 @@ describe('SC-1: Linking Session Management', () => {
 
       expect(getLinkingSessionCount()).toBe(1);
     });
+
+    it('startCleanupTimer should be idempotent', () => {
+      startCleanupTimer();
+      startCleanupTimer();
+
+      createLinkingSession('123456', 'testuser', 'TestName', 1);
+
+      // Advance multiple cleanup intervals to ensure the single timer prunes
+      vi.advanceTimersByTime(CLEANUP_INTERVAL_MS * 3);
+      expect(getLinkingSessionCount()).toBe(0);
+    });
   });
 });
-

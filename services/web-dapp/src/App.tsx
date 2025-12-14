@@ -36,6 +36,7 @@ const SALT_SERVICE_URL = import.meta.env.VITE_ZKLOGIN_SALT_SERVICE_URL || 'https
 const SUI_NETWORK = import.meta.env.VITE_SUI_NETWORK || 'testnet';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
+const PLACEHOLDER_SALT = import.meta.env.VITE_PLACEHOLDER_SALT_ZKLOGIN || '';
 
 const { networkConfig } = createNetworkConfig({
   testnet: { url: getFullnodeUrl('testnet') },
@@ -116,30 +117,276 @@ function WalletGatePage() {
 // Create wallet page
 function CreateWalletPage() {
   const navigate = useNavigate();
+  const suiClient = useSuiClient();
+  const [step, setStep] = useState<'ready' | 'processing' | 'complete' | 'error'>('ready');
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [zkAddress, setZkAddress] = useState<string | null>(null);
+  const [zkSalt, setZkSalt] = useState<string | null>(null);
+  const [zkSub, setZkSub] = useState<string | null>(null);
+  const [maxEpoch, setMaxEpoch] = useState<number | null>(null);
+  const storageKey = 'create_wallet_state';
+
+  // Parse OAuth callback (Google id_token in URL hash)
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes('id_token=')) {
+      const match = hash.match(/id_token=([^&]+)/);
+      if (match) {
+        const jwt = decodeURIComponent(match[1]);
+        window.history.replaceState({}, '', window.location.pathname + window.location.search);
+        void handleZkLoginCallback(jwt);
+      }
+    } else if (hash.includes('error=')) {
+      const errorMatch = hash.match(/error=([^&]+)/);
+      const descMatch = hash.match(/error_description=([^&]+)/);
+      const description = descMatch?.[1] ? decodeURIComponent(descMatch[1]) : '';
+      setError(`OAuth error: ${decodeURIComponent(errorMatch?.[1] || 'unknown')}${description ? ` - ${description}` : ''}`);
+      setStep('error');
+      window.history.replaceState({}, '', window.location.pathname + window.location.search);
+    }
+  }, []);
+
+  const startZkLogin = useCallback(async () => {
+    if (!GOOGLE_CLIENT_ID) {
+      setError('Google Client ID not configured.');
+      setStep('error');
+      return;
+    }
+
+    try {
+      setError(null);
+      setStatus('Preparing Google sign-in...');
+      setStep('processing');
+
+      // Ephemeral key for zkLogin session
+      const eph = Ed25519Keypair.generate();
+
+      // maxEpoch guard (gives us a bounded session)
+      const { epoch } = await suiClient.getLatestSuiSystemState();
+      const maxEp = Number(epoch) + 10;
+      setMaxEpoch(maxEp);
+
+      // Generate nonce and persist session data across redirect
+      const randomness = generateRandomness();
+      const nonce = generateNonce(eph.getPublicKey(), maxEp, randomness);
+
+      sessionStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          secretKey: Array.from(eph.getSecretKey()),
+          maxEpoch: maxEp,
+          randomness: randomness.toString()
+        })
+      );
+
+      const redirectUri = `${window.location.origin}/create-wallet`;
+      const params = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        redirect_uri: redirectUri,
+        response_type: 'id_token',
+        scope: 'openid',
+        nonce
+      });
+
+      setStatus('Redirecting to Google...');
+      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start zkLogin');
+      setStep('error');
+      setStatus(null);
+    }
+  }, [suiClient]);
+
+  const handleZkLoginCallback = useCallback(
+    async (jwt: string) => {
+      try {
+        setStep('processing');
+        setStatus('Processing Google authentication...');
+        setError(null);
+        setZkAddress(null);
+
+        const stored = sessionStorage.getItem(storageKey);
+        if (!stored) {
+          throw new Error('Session data missing. Please restart the flow.');
+        }
+        sessionStorage.removeItem(storageKey);
+        try {
+          const parsed = JSON.parse(stored) as { maxEpoch?: number };
+          if (parsed?.maxEpoch !== undefined) {
+            setMaxEpoch(parsed.maxEpoch);
+          }
+        } catch {
+          // Ignore parse errors; flow can continue without maxEpoch display
+        }
+
+        const { sub } = decodeJwt(jwt);
+        if (!sub) {
+          throw new Error('Invalid JWT: subject missing.');
+        }
+        setZkSub(sub);
+
+        // Fetch deterministic salt from Mysten service (or configured salt service)
+        setStatus('Fetching zkLogin salt...');
+        const saltResult = await fetchSaltWithFallback(jwt, SALT_SERVICE_URL, PLACEHOLDER_SALT);
+        const { saltBigInt, saltString } = normalizeSalt(saltResult.salt);
+        setZkSalt(saltString);
+        if (saltResult.usedFallback) {
+          setStatus('Using placeholder salt from environment (offline fallback).');
+        }
+
+        // Derive deterministic Sui address
+        const address = jwtToAddress(jwt, saltBigInt);
+        setZkAddress(address);
+
+        setStatus('Wallet created! You can now save or fund this address.');
+        setStep('complete');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'zkLogin failed');
+        setStep('error');
+        setStatus(null);
+      }
+    },
+    []
+  );
+
+  const resetFlow = () => {
+    setError(null);
+    setStatus(null);
+    setZkAddress(null);
+    setZkSalt(null);
+    setZkSub(null);
+    setMaxEpoch(null);
+    sessionStorage.removeItem(storageKey);
+    setStep('ready');
+  };
+
+  const copyToClipboard = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setStatus(`${label} copied to clipboard`);
+    } catch {
+      setStatus(`Copy ${label} failed. You can copy manually.`);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-background flex items-center justify-center p-6">
-      <div className="flex flex-col items-center gap-10 max-w-2xl w-full text-center">
+      <div className="flex flex-col items-center gap-8 max-w-3xl w-full text-center">
         <div>
           <p className="text-xs text-primary uppercase tracking-wider mb-4">Caishen</p>
           <h1 className="text-3xl md:text-5xl font-bold text-foreground leading-tight">
-            Create New Wallet
+            Create Your zkLogin Wallet
           </h1>
+          <p className="text-muted-foreground mt-3 max-w-2xl mx-auto text-base">
+            No seed phrase. Sign in with Google, fetch a deterministic salt, and derive your Sui zkLogin address.
+          </p>
         </div>
 
-        <p className="text-lg text-muted-foreground">
-          Wallet creation flow coming soon.
-        </p>
+        <div className="w-full max-w-2xl space-y-6">
+          {step === 'ready' && (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-xl">Step 1: Authenticate with Google</CardTitle>
+                <CardDescription>We’ll create an ephemeral keypair and redirect you to Google to get an id_token.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Button
+                  onClick={startZkLogin}
+                  className="w-full gradient-button text-primary-foreground font-semibold"
+                >
+                  Continue with Google
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Deterministic: the same Google account + salt will always produce the same Sui address.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
-        <button
-          onClick={() => navigate("/")}
-          aria-label="Go back to wallet selection."
-          className="min-h-[60px] px-8 py-4 text-lg font-bold rounded-xl transition-all
-                     bg-secondary text-secondary-foreground hover:bg-secondary/80
-                     focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background"
-        >
-          ← Go Back
-        </button>
+          {step === 'processing' && (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-xl">Working on it…</CardTitle>
+                <CardDescription>Completing zkLogin steps</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 text-left">
+                {(() => {
+                  const googleState: StatusState = !status
+                    ? 'active'
+                    : status.toLowerCase().includes('google')
+                      ? 'active'
+                      : 'done';
+                  const saltState: StatusState = status?.toLowerCase().includes('salt')
+                    ? 'active'
+                    : zkSalt
+                      ? 'done'
+                      : 'idle';
+                  const addressState: StatusState = zkAddress ? 'done' : 'idle';
+                  return (
+                    <div className="space-y-2">
+                      <StatusRow label="Google sign-in" state={googleState} />
+                      <StatusRow label="Fetch salt" state={saltState} />
+                      <StatusRow label="Derive Sui address" state={addressState} />
+                    </div>
+                  );
+                })()}
+                {status && <p className="text-sm text-primary">{status}</p>}
+                {error && <p className="text-sm text-destructive">{error}</p>}
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 'complete' && zkAddress && (
+            <Card className="bg-primary/5 border-primary/30">
+              <CardHeader>
+                <CardTitle className="text-xl">Wallet Created</CardTitle>
+                <CardDescription>Save these details to re-derive or sign later.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 text-left">
+                <InfoRow label="Sui Address" value={zkAddress} onCopy={() => copyToClipboard(zkAddress, 'Address')} />
+                {zkSalt && <InfoRow label="Salt" value={zkSalt} onCopy={() => copyToClipboard(zkSalt, 'Salt')} />}
+                {zkSub && <InfoRow label="Google sub" value={zkSub} />}
+                {typeof maxEpoch === 'number' && (
+                  <InfoRow label="maxEpoch (session)" value={String(maxEpoch)} />
+                )}
+                <div className="flex flex-col gap-3 pt-2">
+                  <Button
+                    onClick={() => navigate('/')}
+                    className="w-full gradient-button text-primary-foreground font-semibold"
+                  >
+                    Back to start
+                  </Button>
+                  <Button variant="secondary" onClick={() => navigate('/link')}>
+                    Link this wallet to Telegram
+                  </Button>
+                  <Button variant="outline" onClick={resetFlow}>
+                    Create another wallet
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 'error' && (
+            <Card className="bg-destructive/5 border-destructive/30">
+              <CardHeader>
+                <CardTitle className="text-xl">Something went wrong</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {error && <p className="text-destructive text-sm">{error}</p>}
+                <div className="flex flex-col gap-3">
+                  <Button onClick={resetFlow} variant="secondary">
+                    Try again
+                  </Button>
+                  <Button variant="outline" onClick={() => navigate('/')}>
+                    ← Back to wallet selection
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </main>
   );
@@ -163,6 +410,44 @@ function NotFoundPage() {
         </button>
       </div>
     </main>
+  );
+}
+
+type StatusState = 'idle' | 'active' | 'done';
+
+function StatusRow({ label, state }: { label: string; state: StatusState }) {
+  const color =
+    state === 'done' ? 'bg-green-500' : state === 'active' ? 'bg-primary' : 'bg-border';
+  return (
+    <div className="flex items-center gap-3">
+      <span className={`w-3 h-3 rounded-full ${color}`} />
+      <span className="text-sm text-foreground">{label}</span>
+      {state === 'done' && <Check size={16} className="text-green-500" />}
+    </div>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  onCopy
+}: {
+  label: string;
+  value: string;
+  onCopy?: () => void;
+}) {
+  return (
+    <div className="p-3 rounded-lg border border-border bg-background flex flex-col gap-2">
+      <div className="text-xs text-muted-foreground uppercase tracking-wide">{label}</div>
+      <div className="text-sm break-all font-mono">{value}</div>
+      {onCopy && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={onCopy}>
+            Copy
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -488,12 +773,18 @@ function SendFundsPage() {
       let saltValue = salt;
       if (!saltValue) {
         setZkStatus('Fetching salt...');
-        saltValue = await fetchSalt(jwtToken, saltServiceUrl);
+        const saltResult = await fetchSaltWithFallback(jwtToken, saltServiceUrl, PLACEHOLDER_SALT);
+        const { saltBigInt, saltString } = normalizeSalt(saltResult.salt);
+        saltValue = saltString;
+        if (saltResult.usedFallback) {
+          setZkStatus('Using placeholder salt from environment (offline fallback)...');
+        }
         setSalt(saltValue);
       }
 
       // 2) Derive zkLogin address
-      const zkAddr = jwtToAddress(jwtToken, saltValue);
+      const { saltBigInt } = normalizeSalt(saltValue);
+      const zkAddr = jwtToAddress(jwtToken, saltBigInt);
       setZkAddress(zkAddr);
       if (senderParam && zkAddr.toLowerCase() !== senderParam.toLowerCase()) {
         setZkError('Derived zkLogin address does not match sender provided in the link.');
@@ -900,19 +1191,49 @@ function decodeJwt(token: string): { sub?: string; aud?: string } {
   }
 }
 
-async function fetchSalt(jwt: string, url: string): Promise<string> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jwt })
-  });
-  if (!res.ok) {
-    throw new Error(`Salt service error ${res.status}`);
+async function fetchSaltWithFallback(jwt: string, url: string, fallbackSalt?: string): Promise<{ salt: string; usedFallback: boolean }> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // Mysten salt API expects `token`; keep `jwt` for compatibility with other services.
+      body: JSON.stringify({ token: jwt, jwt })
+    });
+    if (!res.ok) {
+      throw new Error(`Salt service error ${res.status}`);
+    }
+    const data = await res.json();
+    const salt = data?.salt;
+    if (!salt) throw new Error('Salt not returned');
+    return { salt: String(salt), usedFallback: false };
+  } catch (err) {
+    if (fallbackSalt) {
+      console.warn('Salt fetch failed, using placeholder salt from env.', err);
+      return { salt: fallbackSalt, usedFallback: true };
+    }
+    throw err;
   }
-  const data = await res.json();
-  const salt = data?.salt;
-  if (!salt) throw new Error('Salt not returned');
-  return String(salt);
+}
+
+/**
+ * Normalize a salt string into bigint + canonical string form.
+ * Accepts decimal or hex (with/without 0x).
+ */
+function normalizeSalt(rawSalt: string): { saltBigInt: bigint; saltString: string } {
+  const trimmed = rawSalt.trim();
+  let saltBigInt: bigint;
+
+  if (/^0x[0-9a-fA-F]+$/.test(trimmed)) {
+    saltBigInt = BigInt(trimmed);
+  } else if (/^[0-9a-fA-F]+$/.test(trimmed) && /[a-fA-F]/.test(trimmed)) {
+    // Hex without 0x
+    saltBigInt = BigInt('0x' + trimmed);
+  } else {
+    // Assume decimal string
+    saltBigInt = BigInt(trimmed);
+  }
+
+  return { saltBigInt, saltString: saltBigInt.toString() };
 }
 
 async function requestProof(params: {
