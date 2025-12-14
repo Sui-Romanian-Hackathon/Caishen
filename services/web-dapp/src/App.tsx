@@ -479,13 +479,20 @@ function SendFundsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [digest, setDigest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'wallet' | 'zklogin'>(() => {
-    const url = new URL(window.location.href);
-    return url.searchParams.get('mode') === 'zklogin' ? 'zklogin' : 'wallet';
-  });
   const [senderParam] = useState(() => {
     const url = new URL(window.location.href);
     return url.searchParams.get('sender') || '';
+  });
+  
+  // Auto-detect mode: if sender is provided, default to zklogin (user likely has zkLogin wallet)
+  const [mode, setMode] = useState<'wallet' | 'zklogin'>(() => {
+    const url = new URL(window.location.href);
+    const explicitMode = url.searchParams.get('mode');
+    if (explicitMode === 'zklogin') return 'zklogin';
+    if (explicitMode === 'wallet') return 'wallet';
+    // If sender is provided (from Telegram), default to zklogin
+    const sender = url.searchParams.get('sender');
+    return sender ? 'zklogin' : 'wallet';
   });
 
   // zkLogin state
@@ -625,17 +632,25 @@ function SendFundsPage() {
       setRandomness(rand.toString());
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
-      // Store keypair info in sessionStorage for callback
+      // Store keypair info AND transaction params in sessionStorage for callback
       sessionStorage.setItem('zklogin_eph', JSON.stringify({
         secretKey: Array.from(eph.getSecretKey()),
         maxEpoch: maxEp,
-        randomness: rand.toString()
+        randomness: rand.toString(),
+        // Preserve transaction params for after OAuth
+        txParams: {
+          recipient: form.recipient,
+          amount: form.amount,
+          sender: senderParam,
+          memo: form.memo
+        }
       }));
 
-      // Build OAuth URL
+      // Build OAuth URL - redirect back to /send-funds (must be whitelisted in Google Console)
+      const redirectUri = `${window.location.origin}/send-funds`;
       const params = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri,
         response_type: 'id_token',
         scope: 'openid',
         nonce: nonce
@@ -647,7 +662,7 @@ function SendFundsPage() {
     }
   }, [suiClient]);
 
-  // Restore ephemeral key from session storage on mount
+  // Restore ephemeral key and transaction params from session storage on mount
   useEffect(() => {
     const stored = sessionStorage.getItem('zklogin_eph');
     if (stored && jwtToken) {
@@ -657,6 +672,16 @@ function SendFundsPage() {
         setEphemeralKeypair(eph);
         setMaxEpoch(data.maxEpoch);
         setRandomness(data.randomness);
+        
+        // Restore transaction params if present
+        if (data.txParams) {
+          setForm({
+            recipient: data.txParams.recipient || '',
+            amount: data.txParams.amount || '',
+            memo: data.txParams.memo || ''
+          });
+        }
+        
         // Clear after restore
         sessionStorage.removeItem('zklogin_eph');
       } catch {
@@ -1037,17 +1062,37 @@ function SendFundsPage() {
                 </form>
               ) : (
                 <form className="space-y-4" onSubmit={onSubmitZk}>
-                  {/* Google OAuth button */}
+                  {/* Google OAuth button - prominent when coming from Telegram */}
                   {!jwtToken && GOOGLE_CLIENT_ID && (
-                    <div className="flex flex-col items-center gap-3 p-4 border border-dashed border-border rounded-lg">
+                    <div className={`flex flex-col items-center gap-3 p-5 rounded-xl ${
+                      senderParam 
+                        ? 'bg-blue-500/10 border-2 border-blue-500/50' 
+                        : 'border border-dashed border-border'
+                    }`}>
+                      {senderParam && (
+                        <div className="text-center mb-2">
+                          <p className="text-sm font-semibold text-blue-400">
+                            🔐 Sign in to complete your transaction
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Use the same Google account you used to create your wallet
+                          </p>
+                        </div>
+                      )}
                       <Button 
                         type="button" 
                         onClick={startGoogleOAuth}
-                        className="bg-[#4285f4] hover:bg-[#3367d6] text-white"
+                        className={`${
+                          senderParam 
+                            ? 'bg-blue-500 hover:bg-blue-600 text-white text-lg py-6 px-8' 
+                            : 'bg-[#4285f4] hover:bg-[#3367d6] text-white'
+                        }`}
                       >
-                        🔐 Login with Google
+                        {senderParam ? '🔐 Sign in with Google to Send' : '🔐 Login with Google'}
                       </Button>
-                      <p className="text-muted-foreground text-sm">Or paste a JWT manually below</p>
+                      {!senderParam && (
+                        <p className="text-muted-foreground text-sm">Or paste a JWT manually below</p>
+                      )}
                     </div>
                   )}
 
