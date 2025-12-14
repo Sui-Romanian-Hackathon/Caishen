@@ -33,8 +33,8 @@ import { AddressDisplay } from '@/components/AddressDisplay';
 
 // Configuration from environment variables (build-time)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
-const PROVER_URL = import.meta.env.VITE_ZKLOGIN_PROVER_URL || 'https://prover-dev.mystenlabs.com/v1';
-const SALT_SERVICE_URL = import.meta.env.VITE_ZKLOGIN_SALT_SERVICE_URL || 'https://salt.api.mystenlabs.com/get_salt';
+// Prover URL for zkLogin
+const PROVER_URL = 'https://prover-dev.mystenlabs.com/v1';
 const SUI_NETWORK = import.meta.env.VITE_SUI_NETWORK || 'testnet';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
@@ -547,9 +547,6 @@ function SendFundsPage() {
     return '';
   });
   const [salt, setSalt] = useState('');
-  // Use configuration from environment (not exposed in URL)
-  const proverUrl = PROVER_URL;
-  const saltServiceUrl = SALT_SERVICE_URL;
   const [zkStatus, setZkStatus] = useState<string | null>(null);
   const [zkError, setZkError] = useState<string | null>(null);
   const [zkDigest, setZkDigest] = useState<string | null>(null);
@@ -846,27 +843,28 @@ function SendFundsPage() {
     try {
       // Use SDK's decodeJwt for consistent handling (normalizes issuer, validates aud)
       const decoded = sdkDecodeJwt(jwtToken);
-      const { sub, aud } = decoded;
-      console.log('[zkLogin] Decoded JWT (full):', {
-        sub: sub,
-        aud: aud,
-        iss: decoded.iss,
-        rawIss: decoded.rawIss
-      });
+      const { sub, aud, iss } = decoded;
+      console.log('[zkLogin] ===== DECODED JWT =====');
+      console.log('[zkLogin] sub:', sub);
+      console.log('[zkLogin] aud:', aud);  
+      console.log('[zkLogin] iss:', iss);
 
       // Use hardcoded salt (hackathon mode - same salt for all users)
       const saltValue = HARDCODED_SALT;
-      setSalt(saltValue);
-      console.log('[zkLogin] Using salt:', saltValue);
-
-      // 2) Derive zkLogin address - use BigInt directly for consistency
       const saltBigInt = BigInt(saltValue);
+      setSalt(saltValue);
+      console.log('[zkLogin] ===== SALT =====');
+      console.log('[zkLogin] saltValue (string):', saltValue);
+      console.log('[zkLogin] saltBigInt:', saltBigInt.toString());
+
+      // 2) Derive zkLogin address
       const zkAddr = jwtToAddress(jwtToken, saltBigInt);
       
-      // Also compute addressSeed here to verify it matches later
+      // Compute addressSeed for verification
       const expectedAddressSeed = genAddressSeed(saltBigInt, 'sub', sub, aud).toString();
-      console.log('[zkLogin] Expected addressSeed:', expectedAddressSeed);
-      console.log('[zkLogin] Derived zkAddr:', zkAddr);
+      console.log('[zkLogin] ===== ADDRESS COMPUTATION =====');
+      console.log('[zkLogin] expectedAddressSeed:', expectedAddressSeed);
+      console.log('[zkLogin] zkAddr:', zkAddr);
       setZkAddress(zkAddr);
       if (senderParam && zkAddr.toLowerCase() !== senderParam.toLowerCase()) {
         setZkError('Derived zkLogin address does not match sender provided in the link.');
@@ -910,59 +908,47 @@ function SendFundsPage() {
         client: suiClient
       });
 
-      // 6) Request proof from prover
+      // 6) Request proof from Mysten prover
       setZkStatus('Requesting zk proof (this may take 10-30s)...');
-      console.log('[zkLogin] Requesting proof with:', {
-        salt: saltValue,
-        maxEpoch: maxEp,
-        jwtRandomness: rand?.slice(0, 20) + '...',
-        keyClaimName: 'sub'
-      });
-      const proof = await requestProof({
-        proverUrl,
-        jwt: jwtToken,
-        salt: saltValue,
-        maxEpoch: maxEp,
-        jwtRandomness: rand,
-        extendedEphemeralPublicKey: getExtendedEphemeralPublicKey(eph.getPublicKey()),
-        keyClaimName: 'sub',
-        nonce
-      });
-      console.log('[zkLogin] Proof received:', JSON.stringify(proof, null, 2));
+      console.log('[zkLogin] ===== PROVER REQUEST =====');
       
-      // 7) Assemble zkLogin signature
-      // The prover should return addressSeed - use it if available, otherwise compute
-      let addressSeed: string;
-      if (proof.addressSeed) {
-        console.log('[zkLogin] Using addressSeed FROM PROVER:', proof.addressSeed);
-        addressSeed = proof.addressSeed;
-      } else {
-        // Compute addressSeed ourselves
-        addressSeed = genAddressSeed(saltBigInt, 'sub', sub, aud).toString();
-        console.log('[zkLogin] Computed addressSeed ourselves:', addressSeed);
+      const proverUrl = 'https://prover-dev.mystenlabs.com/v1';
+      const extendedEphPubKey = getExtendedEphemeralPublicKey(eph.getPublicKey());
+      
+      const proofResponse = await fetch(proverUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jwt: jwtToken,
+          extendedEphemeralPublicKey: extendedEphPubKey,
+          maxEpoch: maxEp,
+          jwtRandomness: rand,
+          salt: saltValue,
+          keyClaimName: 'sub'
+        })
+      });
+      
+      if (!proofResponse.ok) {
+        const errorText = await proofResponse.text();
+        throw new Error(`Prover error ${proofResponse.status}: ${errorText}`);
       }
       
-      console.log('[zkLogin] Expected addressSeed (computed earlier):', expectedAddressSeed);
-      console.log('[zkLogin] AddressSeed matches?', addressSeed === expectedAddressSeed);
-      console.log('[zkLogin] Computing addressSeed with:', {
-        salt: saltValue,
-        sub: sub,
-        aud: aud,
-        addressSeed: addressSeed
-      });
-      console.log('[zkLogin] zkAddr (derived):', zkAddr);
-      console.log('[zkLogin] senderParam (from link):', senderParam);
+      const proof = await proofResponse.json();
+      console.log('[zkLogin] ===== PROVER RESPONSE =====');
+      console.log('[zkLogin] Full proof:', JSON.stringify(proof, null, 2));
       
-      // Build inputs exactly as SDK expects
+      // Build zkLogin inputs - use addressSeed from prover if available
+      const addressSeed = proof.addressSeed || genAddressSeed(saltBigInt, 'sub', sub, aud).toString();
+      console.log('[zkLogin] addressSeed (from prover or computed):', addressSeed);
+      console.log('[zkLogin] Our computed addressSeed:', expectedAddressSeed);
+      console.log('[zkLogin] Match:', addressSeed === expectedAddressSeed);
+      
       const zkLoginInputs = {
         proofPoints: proof.proofPoints,
         issBase64Details: proof.issBase64Details,
         headerBase64: proof.headerBase64,
         addressSeed: addressSeed
       };
-      console.log('[zkLogin] zkLoginInputs:', JSON.stringify(zkLoginInputs, null, 2));
-      console.log('[zkLogin] maxEpoch:', maxEp);
-      console.log('[zkLogin] userSignature type:', typeof userSignature);
       
       const zkLoginSignature = getZkLoginSignature({
         inputs: zkLoginInputs,
@@ -1387,42 +1373,3 @@ function normalizeSalt(rawSalt: string): { saltBigInt: bigint; saltString: strin
   return { saltBigInt, saltString: saltBigInt.toString() };
 }
 
-async function requestProof(params: {
-  proverUrl: string;
-  jwt: string;
-  salt: string;
-  maxEpoch: number;
-  jwtRandomness: string;
-  extendedEphemeralPublicKey: string;
-  keyClaimName: string;
-  nonce: string;
-}) {
-  const body = {
-    jwt: params.jwt,
-    salt: params.salt,
-    maxEpoch: params.maxEpoch,
-    jwtRandomness: params.jwtRandomness,
-    extendedEphemeralPublicKey: params.extendedEphemeralPublicKey,
-    keyClaimName: params.keyClaimName
-  };
-  
-  console.log('[zkLogin] Requesting proof with params:', {
-    ...body,
-    jwt: body.jwt.slice(0, 50) + '...',
-    salt: body.salt,
-    maxEpoch: body.maxEpoch
-  });
-  
-  const res = await fetch(params.proverUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error('[zkLogin] Prover error:', res.status, errorText);
-    throw new Error(`Prover error ${res.status}: ${errorText}`);
-  }
-  return res.json();
-}
