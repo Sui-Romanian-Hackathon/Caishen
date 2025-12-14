@@ -15,7 +15,8 @@ import {
   genAddressSeed,
   getExtendedEphemeralPublicKey,
   getZkLoginSignature,
-  jwtToAddress
+  jwtToAddress,
+  decodeJwt as sdkDecodeJwt
 } from '@mysten/sui/zklogin';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { useEffect, useState, useCallback } from 'react';
@@ -843,10 +844,10 @@ function SendFundsPage() {
     }
 
     try {
-      const { sub, aud } = decodeJwt(jwtToken);
-      if (!sub || !aud) {
-        throw new Error('JWT missing sub or aud');
-      }
+      // Use SDK's decodeJwt for consistent handling (normalizes issuer, validates aud)
+      const decoded = sdkDecodeJwt(jwtToken);
+      const { sub, aud } = decoded;
+      console.log('[zkLogin] Decoded JWT:', { sub: sub?.slice(0, 10) + '...', aud: aud?.slice(0, 30) + '...' });
 
       // Use hardcoded salt (hackathon mode - same salt for all users)
       const saltValue = HARDCODED_SALT;
@@ -900,6 +901,12 @@ function SendFundsPage() {
 
       // 6) Request proof from prover
       setZkStatus('Requesting zk proof (this may take 10-30s)...');
+      console.log('[zkLogin] Requesting proof with:', {
+        salt: saltValue,
+        maxEpoch: maxEp,
+        jwtRandomness: rand?.slice(0, 20) + '...',
+        keyClaimName: 'sub'
+      });
       const proof = await requestProof({
         proverUrl,
         jwt: jwtToken,
@@ -910,9 +917,19 @@ function SendFundsPage() {
         keyClaimName: 'sub',
         nonce
       });
+      console.log('[zkLogin] Proof received:', Object.keys(proof));
 
       // 7) Assemble zkLogin signature
       const addressSeed = genAddressSeed(BigInt(saltValue), 'sub', sub, aud).toString();
+      console.log('[zkLogin] Computing addressSeed with:', {
+        salt: saltValue,
+        sub: sub,
+        aud: aud,
+        addressSeed: addressSeed.slice(0, 30) + '...'
+      });
+      console.log('[zkLogin] zkAddr (derived):', zkAddr);
+      console.log('[zkLogin] senderParam (from link):', senderParam);
+      
       const zkLoginSignature = getZkLoginSignature({
         inputs: { ...proof, addressSeed },
         maxEpoch: maxEp,
