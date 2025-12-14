@@ -54,6 +54,25 @@ export function LinkPage() {
   const [zkSalt, setZkSalt] = useState<string | null>(null);
   const [zkSub, setZkSub] = useState<string | null>(null);
 
+  // Clear all cached state on mount - ensures fresh start every time
+  useEffect(() => {
+    // Clear zkLogin cached data
+    sessionStorage.removeItem('zklogin_link');
+    sessionStorage.removeItem('zklogin_eph');
+    
+    // Clear any other cached session data
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && (key.startsWith('zklogin') || key.startsWith('sui'))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => sessionStorage.removeItem(key));
+    
+    console.log('[LinkPage] Cleared cached session data for fresh start');
+  }, []); // Run once on mount
+
   // Load session on mount
   useEffect(() => {
     if (!token) {
@@ -136,12 +155,21 @@ export function LinkPage() {
     }
   }, []);
 
-  // Handle Slush wallet connection
+  // Track if user manually initiated wallet connection
+  const [userInitiatedConnection, setUserInitiatedConnection] = useState(false);
+
+  // Handle Slush wallet connection - ONLY if user manually initiated
   useEffect(() => {
-    if (account?.address && step === 'choose_wallet' && session?.status === 'pending_wallet') {
+    if (
+      userInitiatedConnection &&
+      account?.address && 
+      step === 'choose_wallet' && 
+      session?.status === 'pending_wallet'
+    ) {
       connectWallet(account.address, 'slush');
+      setUserInitiatedConnection(false); // Reset after connecting
     }
-  }, [account, step, session]);
+  }, [account, step, session, userInitiatedConnection]);
 
   const connectWallet = async (address: string, type: 'zklogin' | 'slush' | 'external') => {
     if (!token) return;
@@ -441,7 +469,9 @@ export function LinkPage() {
                   <p className="text-muted-foreground text-sm">
                     Connect your Slush wallet or any other Sui-compatible wallet
                   </p>
-                  <ConnectButton />
+                  <div onClick={() => setUserInitiatedConnection(true)}>
+                    <ConnectButton />
+                  </div>
                 </div>
 
                 {status && <div className="text-center text-primary text-sm">{status}</div>}
