@@ -950,14 +950,27 @@ function SendFundsPage() {
         addressSeed: addressSeed
       };
       
+      console.log('[zkLogin] ===== BUILDING SIGNATURE =====');
+      console.log('[zkLogin] maxEpoch for signature:', maxEp);
+      console.log('[zkLogin] userSignature:', userSignature);
+      console.log('[zkLogin] userSignature length:', userSignature?.length);
+      console.log('[zkLogin] Transaction bytes:', bytes);
+      
       const zkLoginSignature = getZkLoginSignature({
         inputs: zkLoginInputs,
         maxEpoch: maxEp,
         userSignature
       });
+      
+      console.log('[zkLogin] zkLoginSignature:', zkLoginSignature?.slice(0, 100) + '...');
+      console.log('[zkLogin] zkLoginSignature length:', zkLoginSignature?.length);
 
       // 8) Execute transaction
       setZkStatus('Broadcasting transaction...');
+      console.log('[zkLogin] ===== EXECUTING TRANSACTION =====');
+      console.log('[zkLogin] sender (zkAddr):', zkAddr);
+      console.log('[zkLogin] transaction bytes length:', bytes?.length);
+      
       const res = await suiClient.executeTransactionBlock({
         transactionBlock: bytes,
         signature: zkLoginSignature,
