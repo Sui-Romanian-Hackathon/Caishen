@@ -104,8 +104,9 @@ export function LinkPage() {
   // Load session on mount
   useEffect(() => {
     if (!token) {
-      setError('No linking token provided. Please start from Telegram with /start');
-      setStep('error');
+      // No token - redirect to Telegram to get a fresh link
+      console.log('[LinkPage] No token, redirecting to Telegram...');
+      window.location.href = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=reset`;
       return;
     }
 
@@ -494,8 +495,8 @@ export function LinkPage() {
                 </div>
 
                 {/* External Wallet Option */}
-                <div className="p-5 border border-border rounded-xl text-center space-y-4">
-                  <h3 className="text-lg font-semibold">👛 Use Existing Wallet</h3>
+                <div className="p-5 border-2 border-green-500/50 bg-green-500/5 rounded-xl text-center space-y-4">
+                  <h3 className="text-lg font-semibold text-green-400">👛 Link Existing Wallet to Telegram</h3>
                   <p className="text-muted-foreground text-sm">
                     Connect your Slush wallet or any other Sui-compatible wallet
                   </p>
