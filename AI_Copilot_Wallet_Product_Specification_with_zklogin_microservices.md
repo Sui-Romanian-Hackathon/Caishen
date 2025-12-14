@@ -29,7 +29,7 @@ This document is the functional specification. The separate status file tracks t
 
 **Overall Progress: ~80% complete (Phases 1-5 functionally live; production hardening pending)**
 
-**Current runtime reality:** Active bot is the TypeScript/Express service in `/src` calling Gemini directly; the Python bot is kept as legacy. Microservice folders (`nlp-service`, `zklogin-service`, `notification-service`) are placeholders; `user-service` and `transaction-builder` expose basic HTTP endpoints but are only partially integrated. The React web dApp handles linking, zkLogin OAuth, and transaction signing using pending transaction IDs.
+**Current runtime reality:** Active bot is the **Python/aiogram** service in `/bot` using Gemini tool-calling; the TypeScript Express scaffold is retained but not primary. Microservice folders (`nlp-service`, `zklogin-service`, `notification-service`) are placeholders; `user-service` and `transaction-builder` expose basic HTTP endpoints but are only partially integrated. The React web dApp handles linking, zkLogin OAuth, and transaction signing using pending transaction IDs.
 
 ---
 
@@ -71,17 +71,17 @@ The Telegram bot operates exclusively within the Conversational Interface Layer 
 
 The system architecture flows as follows: Users interact with the Telegram Bot through text messages or voice notes. The Telegram Bot sends user queries to the NLP layer (Gemini function calling) which parses intents and extracts parameters. The Telegram Bot invokes the appropriate Sui SDK Functions to build unsigned transactions. The Telegram Bot generates Deep Links or QR Codes pointing to the Web dApp. Users click the link and are taken to the Web dApp which connects to their External Wallet (Slush). The External Wallet signs the transaction and broadcasts it to the Sui Network. The Sui Network returns transaction confirmation back through the chain to the Telegram Bot which notifies the user.
 
-> **Current implementation note:** The Express bot calls Gemini directly; the standalone `nlp-service` is a placeholder kept for future split-out.
+> **Current implementation note:** The Python bot calls Gemini tools directly; the standalone `nlp-service` is a placeholder kept for future split-out.
 
 ### 3.3 Microservice Architecture
 
-The target architecture is service-oriented, but the **current runtime is a TypeScript/Express bot plus a React web dApp**, with optional Node services that are still stubs. The Python bot remains in the repo as legacy.
+The target architecture is service-oriented, but the **current runtime is a Python/aiogram bot plus a React web dApp**, with optional Node services that are still stubs. The TypeScript Express scaffold is retained for reference.
 
 #### 3.3.1 Service Definitions (v0.4.1 - Current Implementation Snapshot)
 
 | Service | Responsibility | Technology Stack | Port | Status |
 | --- | --- | --- | --- | --- |
-| `bot-api` | Telegram webhook, Gemini calls, Sui RPC, pending-tx + linking APIs, contact lookup via user-service | Node 20 / Express / @mysten/sui | 3001 | **Active** |
+| `bot-api` | Telegram webhook, Gemini calls, Sui RPC, pending-tx + linking APIs, contact lookup via user-service | Python / aiogram | 3001 | **Active** |
 | `web-dapp` | Signing interface, zkLogin OAuth, wallet connection, pending-tx fetch/consume | React / Vite / @mysten/dapp-kit | 5173 | **Active** |
 | `postgres` | Users, wallet links, contacts, sessions, tx logs, zkLogin salts | PostgreSQL 16 | 5432 | **Active schema** |
 | `user-service` | Contacts CRUD, session tokens, zkLogin salts (shared DB) | Node / Express | 3005 | **Partial** (HTTP endpoints live, integration optional) |
@@ -89,7 +89,7 @@ The target architecture is service-oriented, but the **current runtime is a Type
 | `nlp-service` | Placeholder intent/tool API | Node / Express | 3002 | **Stub** (Gemini called directly by bot) |
 | `zklogin-service` | Placeholder OAuth/prover API | Node / Express | 3004 | **Stub** |
 | `notification-service` | Placeholder notification dispatcher | Node / Express | 3006 | **Stub** |
-| `python-bot` | Legacy aiogram bot with similar handlers | Python / aiogram | 3001 | **Legacy** (not wired into current Dockerfile) |
+| `ts-bot` | TypeScript/Express scaffold with similar handlers | Node 20 / Express | 3001 | **Legacy scaffold** |
 | `nginx` | SSL/TLS termination, reverse proxy, static file serving | nginx | 443/80 | **Planned** |
 
 > zkLogin functionality uses Mysten Labs hosted APIs (salt/prover). The standalone `zklogin-service` remains a stub to keep the option of self-hosted proving.
