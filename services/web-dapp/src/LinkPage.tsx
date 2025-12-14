@@ -38,10 +38,32 @@ export function LinkPage() {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
 
-  // Parse token from URL
+  // Check if this is an OAuth callback (has id_token in hash)
+  const isOAuthCallback = window.location.hash.includes('id_token=');
+
+  // Parse token from URL or sessionStorage (for OAuth callback)
   const [token] = useState<string | null>(() => {
     const url = new URL(window.location.href);
-    return url.searchParams.get('token');
+    const urlToken = url.searchParams.get('token');
+    
+    if (urlToken) {
+      return urlToken;
+    }
+    
+    // If OAuth callback, try to get token from sessionStorage
+    if (isOAuthCallback) {
+      try {
+        const stored = sessionStorage.getItem('zklogin_link');
+        if (stored) {
+          const data = JSON.parse(stored);
+          return data.token || null;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    
+    return null;
   });
 
   const [session, setSession] = useState<LinkingSession | null>(null);
@@ -54,9 +76,15 @@ export function LinkPage() {
   const [zkSalt, setZkSalt] = useState<string | null>(null);
   const [zkSub, setZkSub] = useState<string | null>(null);
 
-  // Clear all cached state on mount - ensures fresh start every time
+  // Clear cached state on mount - but NOT if this is an OAuth callback
   useEffect(() => {
-    // Clear zkLogin cached data
+    // Don't clear if this is an OAuth callback - we need the stored data
+    if (isOAuthCallback) {
+      console.log('[LinkPage] OAuth callback detected, preserving session data');
+      return;
+    }
+    
+    // Clear zkLogin cached data for fresh start
     sessionStorage.removeItem('zklogin_link');
     sessionStorage.removeItem('zklogin_eph');
     
@@ -71,7 +99,7 @@ export function LinkPage() {
     keysToRemove.forEach(key => sessionStorage.removeItem(key));
     
     console.log('[LinkPage] Cleared cached session data for fresh start');
-  }, []); // Run once on mount
+  }, [isOAuthCallback]); // Run once on mount
 
   // Load session on mount
   useEffect(() => {
@@ -230,16 +258,18 @@ export function LinkPage() {
       const rand = generateRandomness();
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
-      // Store for callback
+      // Store for callback - include full return path
       sessionStorage.setItem('zklogin_link', JSON.stringify({
         secretKey: Array.from(eph.getSecretKey()),
         maxEpoch: maxEp,
         randomness: rand.toString(),
-        token: token
+        token: token,
+        returnPath: window.location.pathname + window.location.search
       }));
 
-      // Build OAuth URL - redirect back to this page
-      const redirectUri = `${window.location.origin}${window.location.pathname}?token=${token}`;
+      // Build OAuth URL - use FIXED callback URL (must be whitelisted in Google Console)
+      // The token and path are stored in sessionStorage for retrieval after OAuth
+      const redirectUri = `${window.location.origin}/link`;
       const params = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
         redirect_uri: redirectUri,

@@ -67,16 +67,12 @@ export function App() {
   );
 }
 
-// Landing page - "Do you have a crypto wallet?"
+// Landing page - redirects to Telegram bot for proper linking flow
+const TELEGRAM_BOT_URL = 'https://t.me/Caishen_Sui_Bot?start=link';
+
 function WalletGatePage() {
-  const navigate = useNavigate();
-
-  const handleConnectWallet = () => {
-    navigate("/link");
-  };
-
-  const handleCreateWallet = () => {
-    navigate("/create-wallet");
+  const handleStartInTelegram = () => {
+    window.location.href = TELEGRAM_BOT_URL;
   };
 
   return (
@@ -85,30 +81,33 @@ function WalletGatePage() {
         <div>
           <p className="text-xs text-primary uppercase tracking-wider mb-4">Caishen</p>
           <h1 className="text-3xl md:text-5xl font-bold text-foreground leading-tight">
-            Do you already have a crypto wallet?
+            AI-Powered Sui Wallet
           </h1>
+          <p className="text-muted-foreground mt-4 text-lg">
+            Manage your crypto with natural language through Telegram
+          </p>
         </div>
 
         <div className="flex flex-col gap-6 w-full max-w-md">
           <button
-            onClick={handleConnectWallet}
-            aria-label="Connect existing wallet and proceed to send funds page."
+            onClick={handleStartInTelegram}
+            aria-label="Open Telegram bot to start linking your wallet."
             className="w-full min-h-[80px] px-8 py-6 text-xl font-bold rounded-xl transition-all
                        bg-primary text-primary-foreground hover:bg-primary/90
                        focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background"
           >
-            Yes, I have a wallet
+            🚀 Get Started in Telegram
           </button>
 
-          <button
-            onClick={handleCreateWallet}
-            aria-label="Create a new wallet."
-            className="w-full min-h-[80px] px-8 py-6 text-xl font-bold rounded-xl transition-all
-                       bg-secondary text-secondary-foreground hover:bg-secondary/80
-                       focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background"
-          >
-            No, I need a new wallet
-          </button>
+          <p className="text-muted-foreground text-sm">
+            Click above to open our Telegram bot where you can:
+          </p>
+          <ul className="text-left text-muted-foreground text-sm space-y-2 pl-4">
+            <li>✅ Create a new zkLogin wallet (no seed phrase!)</li>
+            <li>✅ Connect your existing Slush wallet</li>
+            <li>✅ Send SUI using natural language</li>
+            <li>✅ Check balances and transaction history</li>
+          </ul>
         </div>
       </div>
     </main>
