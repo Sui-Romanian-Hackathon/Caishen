@@ -467,8 +467,26 @@ function SendFundsPage() {
   const [pendingTxError, setPendingTxError] = useState<string | null>(null);
   const [pendingTxExpiry, setPendingTxExpiry] = useState<number | null>(null);
 
-  // Form state
+  // Form state - check sessionStorage first (for OAuth callback), then URL params
   const [form, setForm] = useState(() => {
+    // First check if we have stored tx params from OAuth flow
+    const stored = sessionStorage.getItem('zklogin_eph');
+    if (stored) {
+      try {
+        const data = JSON.parse(stored);
+        if (data.txParams) {
+          return {
+            recipient: data.txParams.recipient || '',
+            amount: data.txParams.amount || '',
+            memo: data.txParams.memo || ''
+          };
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    
+    // Fall back to URL params
     const url = new URL(window.location.href);
     return {
       recipient: url.searchParams.get('recipient') || '',
@@ -480,12 +498,38 @@ function SendFundsPage() {
   const [digest, setDigest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [senderParam] = useState(() => {
+    // First check sessionStorage (for OAuth callback)
+    const stored = sessionStorage.getItem('zklogin_eph');
+    if (stored) {
+      try {
+        const data = JSON.parse(stored);
+        if (data.txParams?.sender) {
+          return data.txParams.sender;
+        }
+      } catch {
+        // Ignore
+      }
+    }
+    // Fall back to URL
     const url = new URL(window.location.href);
     return url.searchParams.get('sender') || '';
   });
   
   // Auto-detect mode: if sender is provided, default to zklogin (user likely has zkLogin wallet)
   const [mode, setMode] = useState<'wallet' | 'zklogin'>(() => {
+    // Check sessionStorage first (for OAuth callback)
+    const stored = sessionStorage.getItem('zklogin_eph');
+    if (stored) {
+      try {
+        const data = JSON.parse(stored);
+        if (data.txParams?.sender) {
+          return 'zklogin'; // Coming back from OAuth with sender = zklogin flow
+        }
+      } catch {
+        // Ignore
+      }
+    }
+    
     const url = new URL(window.location.href);
     const explicitMode = url.searchParams.get('mode');
     if (explicitMode === 'zklogin') return 'zklogin';
@@ -646,7 +690,7 @@ function SendFundsPage() {
         }
       }));
 
-      // Build OAuth URL - redirect back to /send-funds (must be whitelisted in Google Console)
+      // Build OAuth URL - redirect back to /send-funds (whitelisted in Google Console)
       const redirectUri = `${window.location.origin}/send-funds`;
       const params = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
@@ -665,9 +709,18 @@ function SendFundsPage() {
   // Restore ephemeral key and transaction params from session storage on mount
   useEffect(() => {
     const stored = sessionStorage.getItem('zklogin_eph');
+    console.log('[zkLogin] Checking sessionStorage for ephemeral key, jwtToken present:', !!jwtToken, 'stored:', !!stored);
+    
     if (stored && jwtToken) {
       try {
         const data = JSON.parse(stored);
+        console.log('[zkLogin] Restoring from sessionStorage:', {
+          hasSecretKey: !!data.secretKey,
+          maxEpoch: data.maxEpoch,
+          hasRandomness: !!data.randomness,
+          hasTxParams: !!data.txParams
+        });
+        
         const eph = Ed25519Keypair.fromSecretKey(new Uint8Array(data.secretKey));
         setEphemeralKeypair(eph);
         setMaxEpoch(data.maxEpoch);
@@ -675,6 +728,7 @@ function SendFundsPage() {
         
         // Restore transaction params if present
         if (data.txParams) {
+          console.log('[zkLogin] Restoring tx params:', data.txParams);
           setForm({
             recipient: data.txParams.recipient || '',
             amount: data.txParams.amount || '',
@@ -684,8 +738,9 @@ function SendFundsPage() {
         
         // Clear after restore
         sessionStorage.removeItem('zklogin_eph');
-      } catch {
-        // Ignore parse errors
+        console.log('[zkLogin] Restored ephemeral key and cleared sessionStorage');
+      } catch (e) {
+        console.error('[zkLogin] Error restoring from sessionStorage:', e);
       }
     }
   }, [jwtToken]);
@@ -855,7 +910,7 @@ function SendFundsPage() {
         salt: saltValue,
         maxEpoch: maxEp,
         jwtRandomness: rand,
-        extendedEphemeralPublicKey: getExtendedEphemeralPublicKey(eph.getPublicKey()).toString(),
+        extendedEphemeralPublicKey: getExtendedEphemeralPublicKey(eph.getPublicKey()),
         keyClaimName: 'sub',
         nonce
       });
@@ -1295,21 +1350,32 @@ async function requestProof(params: {
   keyClaimName: string;
   nonce: string;
 }) {
+  const body = {
+    jwt: params.jwt,
+    salt: params.salt,
+    maxEpoch: params.maxEpoch,
+    jwtRandomness: params.jwtRandomness,
+    extendedEphemeralPublicKey: params.extendedEphemeralPublicKey,
+    keyClaimName: params.keyClaimName
+  };
+  
+  console.log('[zkLogin] Requesting proof with params:', {
+    ...body,
+    jwt: body.jwt.slice(0, 50) + '...',
+    salt: body.salt,
+    maxEpoch: body.maxEpoch
+  });
+  
   const res = await fetch(params.proverUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jwt: params.jwt,
-      salt: params.salt,
-      maxEpoch: params.maxEpoch.toString(),
-      jwtRandomness: params.jwtRandomness,
-      extendedEphemeralPublicKey: params.extendedEphemeralPublicKey,
-      keyClaimName: params.keyClaimName,
-      nonce: params.nonce
-    })
+    body: JSON.stringify(body)
   });
+  
   if (!res.ok) {
-    throw new Error(`Prover error ${res.status}`);
+    const errorText = await res.text();
+    console.error('[zkLogin] Prover error:', res.status, errorText);
+    throw new Error(`Prover error ${res.status}: ${errorText}`);
   }
   return res.json();
 }
