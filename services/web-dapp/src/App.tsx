@@ -677,8 +677,9 @@ function SendFundsPage() {
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
       // Store keypair info AND transaction params in sessionStorage for callback
+      // Note: getSecretKey() returns a base64 string in newer SDK versions
       sessionStorage.setItem('zklogin_eph', JSON.stringify({
-        secretKey: Array.from(eph.getSecretKey()),
+        secretKey: eph.getSecretKey(), // Already a base64 string
         maxEpoch: maxEp,
         randomness: rand.toString(),
         // Preserve transaction params for after OAuth
@@ -721,7 +722,8 @@ function SendFundsPage() {
           hasTxParams: !!data.txParams
         });
         
-        const eph = Ed25519Keypair.fromSecretKey(new Uint8Array(data.secretKey));
+        // secretKey is stored as base64 string
+        const eph = Ed25519Keypair.fromSecretKey(data.secretKey);
         setEphemeralKeypair(eph);
         setMaxEpoch(data.maxEpoch);
         setRandomness(data.randomness);
@@ -873,18 +875,25 @@ function SendFundsPage() {
         return;
       }
 
-      // 3) Use stored ephemeral key from OAuth flow, or generate new one
+      // 3) Use stored ephemeral key from OAuth flow
+      // These MUST be the same keys used when getting the JWT, otherwise nonce won't match
       let eph = ephemeralKeypair;
       let maxEp = maxEpoch;
       let rand = randomness;
 
       if (!eph || !maxEp || !rand) {
-        setZkStatus('Generating ephemeral key...');
-        eph = Ed25519Keypair.generate();
-        const { epoch } = await suiClient.getLatestSuiSystemState();
-        maxEp = Number(epoch) + 2;
-        rand = generateRandomness().toString();
+        // If JWT came from OAuth but we don't have stored keys, we can't proceed
+        // The nonce in the JWT was computed with specific ephemeral key params
+        setZkError('Ephemeral key not found. Please sign in with Google again to get a fresh token.');
+        setZkStatus(null);
+        return;
       }
+      
+      console.log('[zkLogin] Using ephemeral key:', {
+        publicKey: eph.getPublicKey().toSuiAddress().slice(0, 20) + '...',
+        maxEpoch: maxEp,
+        randomness: rand.slice(0, 20) + '...'
+      });
 
       const nonce = generateNonce(eph.getPublicKey(), maxEp, BigInt(rand));
 
