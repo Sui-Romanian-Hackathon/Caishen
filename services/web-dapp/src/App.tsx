@@ -37,7 +37,8 @@ const SALT_SERVICE_URL = import.meta.env.VITE_ZKLOGIN_SALT_SERVICE_URL || 'https
 const SUI_NETWORK = import.meta.env.VITE_SUI_NETWORK || 'testnet';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
-const PLACEHOLDER_SALT = import.meta.env.VITE_PLACEHOLDER_SALT_ZKLOGIN || '';
+// Hardcoded salt for all users (hackathon mode)
+const HARDCODED_SALT = '150862062947206198448536405856390800536';
 
 const { networkConfig } = createNetworkConfig({
   testnet: { url: getFullnodeUrl('testnet') },
@@ -227,14 +228,9 @@ function CreateWalletPage() {
         }
         setZkSub(sub);
 
-        // Fetch deterministic salt from Mysten service (or configured salt service)
-        setStatus('Fetching zkLogin salt...');
-        const saltResult = await fetchSaltWithFallback(jwt, SALT_SERVICE_URL, PLACEHOLDER_SALT);
-        const { saltBigInt, saltString } = normalizeSalt(saltResult.salt);
-        setZkSalt(saltString);
-        if (saltResult.usedFallback) {
-          setStatus('Using placeholder salt from environment (offline fallback).');
-        }
+        // Use hardcoded salt (hackathon mode - same salt for all users)
+        const saltBigInt = BigInt(HARDCODED_SALT);
+        setZkSalt(HARDCODED_SALT);
 
         // Derive deterministic Sui address
         const address = jwtToAddress(jwt, saltBigInt);
@@ -620,11 +616,11 @@ function SendFundsPage() {
     fetchPendingTx();
   }, [pendingTxId]);
 
-  // Derive zkLogin address when JWT changes
+  // Derive zkLogin address when JWT changes (using hardcoded salt)
   useEffect(() => {
-    if (jwtToken && salt) {
+    if (jwtToken) {
       try {
-        const addr = jwtToAddress(jwtToken, salt);
+        const addr = jwtToAddress(jwtToken, BigInt(HARDCODED_SALT));
         setZkAddress(addr);
       } catch {
         setZkAddress(null);
@@ -632,7 +628,7 @@ function SendFundsPage() {
     } else {
       setZkAddress(null);
     }
-  }, [jwtToken, salt]);
+  }, [jwtToken]);
 
   // Estimate gas when form changes
   useEffect(() => {
@@ -852,18 +848,9 @@ function SendFundsPage() {
         throw new Error('JWT missing sub or aud');
       }
 
-      // 1) Fetch salt if not provided
-      let saltValue = salt;
-      if (!saltValue) {
-        setZkStatus('Fetching salt...');
-        const saltResult = await fetchSaltWithFallback(jwtToken, saltServiceUrl, PLACEHOLDER_SALT);
-        const { saltBigInt, saltString } = normalizeSalt(saltResult.salt);
-        saltValue = saltString;
-        if (saltResult.usedFallback) {
-          setZkStatus('Using placeholder salt from environment (offline fallback)...');
-        }
-        setSalt(saltValue);
-      }
+      // Use hardcoded salt (hackathon mode - same salt for all users)
+      const saltValue = HARDCODED_SALT;
+      setSalt(saltValue);
 
       // 2) Derive zkLogin address
       const { saltBigInt } = normalizeSalt(saltValue);

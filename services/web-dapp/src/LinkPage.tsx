@@ -19,8 +19,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseet
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const TELEGRAM_BOT_USERNAME =
   import.meta.env.VITE_TELEGRAM_BOT_USERNAME || 'Caishen_Sui_Bot';
-const SALT_SERVICE_URL = import.meta.env.VITE_ZKLOGIN_SALT_SERVICE_URL || 'https://salt.api.mystenlabs.com/get_salt';
-const PLACEHOLDER_SALT = import.meta.env.VITE_PLACEHOLDER_SALT_ZKLOGIN || '';
+// Hardcoded salt for all users (hackathon mode)
+const HARDCODED_SALT = '150862062947206198448536405856390800536';
 
 interface LinkingSession {
   token: string;
@@ -307,14 +307,9 @@ export function LinkPage() {
       }
       setZkSub(sub);
 
-      // Fetch salt
-      setStatus('Fetching zkLogin salt...');
-      const saltResult = await fetchSalt(jwt);
-      const { saltBigInt, saltString } = normalizeSalt(saltResult.salt);
-      setZkSalt(saltString);
-      if (saltResult.usedFallback) {
-        setStatus('Using placeholder salt from environment (offline fallback)...');
-      }
+      // Use hardcoded salt (hackathon mode - same salt for all users)
+      const saltBigInt = BigInt(HARDCODED_SALT);
+      setZkSalt(HARDCODED_SALT);
 
       // Derive address
       const address = jwtToAddress(jwt, saltBigInt);
@@ -620,40 +615,4 @@ function decodeJwt(token: string): { sub?: string; aud?: string } {
   }
 }
 
-async function fetchSalt(jwt: string): Promise<{ salt: string; usedFallback: boolean }> {
-  try {
-    const res = await fetch(SALT_SERVICE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // Mysten salt API expects `token`; keep `jwt` for compatibility.
-      body: JSON.stringify({ token: jwt, jwt })
-    });
-    if (!res.ok) {
-      throw new Error(`Salt service error ${res.status}`);
-    }
-    const data = await res.json();
-    if (!data?.salt) throw new Error('Salt not returned');
-    return { salt: String(data.salt), usedFallback: false };
-  } catch (err) {
-    if (PLACEHOLDER_SALT) {
-      console.warn('Salt fetch failed, using placeholder salt from env.', err);
-      return { salt: PLACEHOLDER_SALT, usedFallback: true };
-    }
-    throw err;
-  }
-}
-
-function normalizeSalt(rawSalt: string): { saltBigInt: bigint; saltString: string } {
-  const trimmed = rawSalt.trim();
-  let saltBigInt: bigint;
-
-  if (/^0x[0-9a-fA-F]+$/.test(trimmed)) {
-    saltBigInt = BigInt(trimmed);
-  } else if (/^[0-9a-fA-F]+$/.test(trimmed) && /[a-fA-F]/.test(trimmed)) {
-    saltBigInt = BigInt('0x' + trimmed);
-  } else {
-    saltBigInt = BigInt(trimmed);
-  }
-
-  return { saltBigInt, saltString: saltBigInt.toString() };
-}
+// Salt functions removed - using HARDCODED_SALT for hackathon
