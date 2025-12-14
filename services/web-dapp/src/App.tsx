@@ -847,15 +847,26 @@ function SendFundsPage() {
       // Use SDK's decodeJwt for consistent handling (normalizes issuer, validates aud)
       const decoded = sdkDecodeJwt(jwtToken);
       const { sub, aud } = decoded;
-      console.log('[zkLogin] Decoded JWT:', { sub: sub?.slice(0, 10) + '...', aud: aud?.slice(0, 30) + '...' });
+      console.log('[zkLogin] Decoded JWT (full):', {
+        sub: sub,
+        aud: aud,
+        iss: decoded.iss,
+        rawIss: decoded.rawIss
+      });
 
       // Use hardcoded salt (hackathon mode - same salt for all users)
       const saltValue = HARDCODED_SALT;
       setSalt(saltValue);
+      console.log('[zkLogin] Using salt:', saltValue);
 
-      // 2) Derive zkLogin address
-      const { saltBigInt } = normalizeSalt(saltValue);
+      // 2) Derive zkLogin address - use BigInt directly for consistency
+      const saltBigInt = BigInt(saltValue);
       const zkAddr = jwtToAddress(jwtToken, saltBigInt);
+      
+      // Also compute addressSeed here to verify it matches later
+      const expectedAddressSeed = genAddressSeed(saltBigInt, 'sub', sub, aud).toString();
+      console.log('[zkLogin] Expected addressSeed:', expectedAddressSeed);
+      console.log('[zkLogin] Derived zkAddr:', zkAddr);
       setZkAddress(zkAddr);
       if (senderParam && zkAddr.toLowerCase() !== senderParam.toLowerCase()) {
         setZkError('Derived zkLogin address does not match sender provided in the link.');
@@ -917,21 +928,44 @@ function SendFundsPage() {
         keyClaimName: 'sub',
         nonce
       });
-      console.log('[zkLogin] Proof received:', Object.keys(proof));
-
+      console.log('[zkLogin] Proof received:', JSON.stringify(proof, null, 2));
+      
       // 7) Assemble zkLogin signature
-      const addressSeed = genAddressSeed(BigInt(saltValue), 'sub', sub, aud).toString();
+      // The prover should return addressSeed - use it if available, otherwise compute
+      let addressSeed: string;
+      if (proof.addressSeed) {
+        console.log('[zkLogin] Using addressSeed FROM PROVER:', proof.addressSeed);
+        addressSeed = proof.addressSeed;
+      } else {
+        // Compute addressSeed ourselves
+        addressSeed = genAddressSeed(saltBigInt, 'sub', sub, aud).toString();
+        console.log('[zkLogin] Computed addressSeed ourselves:', addressSeed);
+      }
+      
+      console.log('[zkLogin] Expected addressSeed (computed earlier):', expectedAddressSeed);
+      console.log('[zkLogin] AddressSeed matches?', addressSeed === expectedAddressSeed);
       console.log('[zkLogin] Computing addressSeed with:', {
         salt: saltValue,
         sub: sub,
         aud: aud,
-        addressSeed: addressSeed.slice(0, 30) + '...'
+        addressSeed: addressSeed
       });
       console.log('[zkLogin] zkAddr (derived):', zkAddr);
       console.log('[zkLogin] senderParam (from link):', senderParam);
       
+      // Build inputs exactly as SDK expects
+      const zkLoginInputs = {
+        proofPoints: proof.proofPoints,
+        issBase64Details: proof.issBase64Details,
+        headerBase64: proof.headerBase64,
+        addressSeed: addressSeed
+      };
+      console.log('[zkLogin] zkLoginInputs:', JSON.stringify(zkLoginInputs, null, 2));
+      console.log('[zkLogin] maxEpoch:', maxEp);
+      console.log('[zkLogin] userSignature type:', typeof userSignature);
+      
       const zkLoginSignature = getZkLoginSignature({
-        inputs: { ...proof, addressSeed },
+        inputs: zkLoginInputs,
         maxEpoch: maxEp,
         userSignature
       });

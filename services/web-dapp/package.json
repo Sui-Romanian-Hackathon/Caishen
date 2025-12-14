@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@mysten/dapp-kit": "^0.19.11",
+    "@mysten/enoki": "^0.12.15",
     "@mysten/sui": "^1.45.2",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-slot": "^1.2.3",
