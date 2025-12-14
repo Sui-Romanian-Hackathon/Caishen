@@ -18,6 +18,16 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 
 ---
 
+## Phase completion snapshot (user confirmation)
+- Phase 1: ✅ Foundation (bot + Sui RPC)
+- Phase 2: ✅ NLP & tool calling working to commands
+- Phase 3: ✅ Linking + Telegram HMAC + zkLogin flow marked complete
+- Phase 4: ✅ Web dApp signing/linking working
+- Phase 5: ✅ VPS with nginx/postgres/docker running
+- Phase 6: 🚧 MVP only (hardening pending)
+
+---
+
 ## Architecture Overview (v0.4.0)
 
 ```
@@ -325,7 +335,7 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | Deep link generation | `[x]` | Pending tx API | Opens web-dapp |
 | QR code generation | `[ ]` | Transaction | Scannable QR |
 | Signature callback handling | `[x]` | Web dApp | Handles signed tx |
-| Transaction submission | `[x]` | Signed tx | Submits to network |
+| Transaction submission | `[x]` | Sui SDK | Submits to network |
 
 ### 3.4 Onboarding Flow
 
