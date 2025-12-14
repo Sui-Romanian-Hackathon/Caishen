@@ -72,7 +72,7 @@ function WalletGatePage() {
   const navigate = useNavigate();
 
   const handleConnectWallet = () => {
-    navigate("/send-funds");
+    navigate("/link");
   };
 
   const handleCreateWallet = () => {
