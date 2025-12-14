@@ -12,6 +12,7 @@ import {
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { AddressDisplay } from '@/components/AddressDisplay';
 
 // Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
@@ -459,7 +460,7 @@ export function LinkPage() {
                 {zkAddress && (
                   <div className="bg-muted/50 p-4 rounded-lg text-center">
                     <strong className="block text-xs text-muted-foreground mb-2">Your new wallet address:</strong>
-                    <code className="text-sm break-all">{zkAddress}</code>
+                    <AddressDisplay address={zkAddress} />
                   </div>
                 )}
               </CardContent>
@@ -478,7 +479,7 @@ export function LinkPage() {
                 {session?.walletAddress && (
                   <div className="flex items-center justify-center gap-2 p-3 bg-primary/10 rounded-lg text-sm">
                     <span className="text-primary">✓</span>
-                    Wallet connected: <code className="text-xs">{session.walletAddress}</code>
+                    Wallet connected: <AddressDisplay address={session.walletAddress} size="sm" />
                   </div>
                 )}
 
@@ -509,7 +510,10 @@ export function LinkPage() {
                 {session?.walletAddress && (
                   <div className="bg-muted/50 p-4 rounded-lg text-left space-y-2">
                     <div><strong className="text-muted-foreground">Telegram:</strong> @{session.telegramUsername}</div>
-                    <div><strong className="text-muted-foreground">Wallet:</strong> <code className="text-xs break-all">{session.walletAddress}</code></div>
+                    <div className="flex flex-col gap-1">
+                      <strong className="text-muted-foreground">Wallet:</strong>
+                      <AddressDisplay address={session.walletAddress} size="sm" />
+                    </div>
                   </div>
                 )}
 

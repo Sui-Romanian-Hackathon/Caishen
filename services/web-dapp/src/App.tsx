@@ -28,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Check } from 'lucide-react';
+import { AddressDisplay } from '@/components/AddressDisplay';
 
 // Configuration from environment variables (build-time)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
@@ -261,15 +262,6 @@ function CreateWalletPage() {
     setStep('ready');
   };
 
-  const copyToClipboard = async (value: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setStatus(`${label} copied to clipboard`);
-    } catch {
-      setStatus(`Copy ${label} failed. You can copy manually.`);
-    }
-  };
-
   return (
     <main className="min-h-screen bg-background flex items-center justify-center p-6">
       <div className="flex flex-col items-center gap-8 max-w-3xl w-full text-center">
@@ -344,8 +336,8 @@ function CreateWalletPage() {
                 <CardDescription>Save these details to re-derive or sign later.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 text-left">
-                <InfoRow label="Sui Address" value={zkAddress} onCopy={() => copyToClipboard(zkAddress, 'Address')} />
-                {zkSalt && <InfoRow label="Salt" value={zkSalt} onCopy={() => copyToClipboard(zkSalt, 'Salt')} />}
+                <InfoRow label="Sui Address" value={<AddressDisplay address={zkAddress} />} copyText={zkAddress} />
+                {zkSalt && <InfoRow label="Salt" value={zkSalt} copyText={zkSalt} />}
                 {zkSub && <InfoRow label="Google sub" value={zkSub} />}
                 {typeof maxEpoch === 'number' && (
                   <InfoRow label="maxEpoch (session)" value={String(maxEpoch)} />
@@ -430,19 +422,28 @@ function StatusRow({ label, state }: { label: string; state: StatusState }) {
 function InfoRow({
   label,
   value,
-  onCopy
+  copyText
 }: {
   label: string;
-  value: string;
-  onCopy?: () => void;
+  value: React.ReactNode;
+  copyText?: string;
 }) {
+  const handleCopy = async () => {
+    if (!copyText) return;
+    try {
+      await navigator.clipboard.writeText(copyText);
+    } catch {
+      // no-op
+    }
+  };
+
   return (
     <div className="p-3 rounded-lg border border-border bg-background flex flex-col gap-2">
       <div className="text-xs text-muted-foreground uppercase tracking-wide">{label}</div>
       <div className="text-sm break-all font-mono">{value}</div>
-      {onCopy && (
+      {copyText && (
         <div className="flex justify-end">
-          <Button size="sm" variant="outline" onClick={onCopy}>
+          <Button size="sm" variant="outline" onClick={handleCopy}>
             Copy
           </Button>
         </div>
@@ -949,7 +950,10 @@ function SendFundsPage() {
 
               {senderParam && (
                 <div className="mb-4 p-3 bg-secondary/50 rounded-lg text-sm">
-                  <div><strong>Sender (from link):</strong> <code className="text-xs bg-muted px-2 py-1 rounded">{senderParam}</code></div>
+                  <div className="flex flex-col gap-1">
+                    <strong>Sender (from link):</strong>
+                    <AddressDisplay address={senderParam} size="sm" />
+                  </div>
                   {account?.address && account.address.toLowerCase() !== senderParam.toLowerCase() && (
                     <div className="text-destructive mt-2">Connected wallet differs from the sender specified in this link.</div>
                   )}
@@ -1050,7 +1054,7 @@ function SendFundsPage() {
                   {zkAddress && (
                     <div className="bg-primary/10 border border-primary/30 p-3 rounded-lg">
                       <strong className="text-xs text-muted-foreground uppercase tracking-wide block mb-1">zkLogin Address:</strong>
-                      <code className="text-sm">{zkAddress.slice(0, 10)}...{zkAddress.slice(-8)}</code>
+                      <AddressDisplay address={zkAddress} size="sm" />
                     </div>
                   )}
 
@@ -1159,7 +1163,7 @@ function SendFundsPage() {
                 <div className="space-y-3">
                   <div>
                     <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Address</p>
-                    <code className="text-sm bg-muted/50 px-3 py-2 rounded-lg block break-all">{account.address}</code>
+                    <AddressDisplay address={account.address} />
                   </div>
                   {account.label && (
                     <div>
