@@ -30,7 +30,7 @@ KEYWORD_TO_DOMAIN = {
     Domain.contacts: ["contacts", "contact", "address book", "add contact", "delete contact", "remove contact", "save address", "show contacts", "my contacts"],
     Domain.history: ["history", "transactions", "recent", "activity", "what did i send", "what did i receive", "show history", "transaction history"],
     Domain.nfts: ["nft", "nfts", "collectibles", "digital art", "show nft", "my nft"],
-    Domain.help: ["help", "commands", "what can you do", "how do i", "reset", "clear history", "start over", "start", "connect", "link wallet"],
+    Domain.help: ["help", "commands", "what can you do", "how do i", "reset", "clear history", "start over", "start", "connect", "link wallet", "disconnect", "unlink", "full reset", "delete everything", "remove wallet"],
 }
 
 
@@ -345,7 +345,14 @@ ALWAYS call a tool - don't respond with just text."""
             return "get_nfts", args, None
 
         if domain == Domain.help:
-            if "reset" in text or "clear" in text:
+            # Full reset - most destructive, check first
+            if "full reset" in text or "delete everything" in text or "remove all" in text or "start completely fresh" in text:
+                return "full_reset", args, None
+            # Disconnect wallet
+            if "disconnect" in text or "unlink" in text or "remove wallet" in text:
+                return "disconnect_wallet", args, None
+            # Simple conversation reset
+            if "reset" in text or "clear" in text or "start over" in text:
                 return "reset_conversation", args, None
             return "get_help", args, None
 
@@ -408,7 +415,7 @@ ALWAYS call a tool - don't respond with just text."""
         # Tools that need wallet_address
         wallet_tools = ["get_balance", "send_sui", "get_transaction_history", "get_nfts"]
         # Tools that need user_id
-        user_tools = ["list_contacts", "add_new_contact", "delete_contact", "send_sui", "reset_conversation"]
+        user_tools = ["list_contacts", "add_new_contact", "delete_contact", "send_sui", "reset_conversation", "disconnect_wallet", "full_reset"]
         
         # Force inject correct values (override any LLM hallucinations)
         if tool_name in wallet_tools and context_wallet:

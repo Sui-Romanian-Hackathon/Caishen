@@ -182,6 +182,80 @@ async def link_wallet(
         """, telegram_id, address, linked_via, label)
 
 
+async def unlink_wallet(telegram_id: str, address: Optional[str] = None) -> bool:
+    """
+    Unlink wallet(s) from user.
+    If address is provided, only unlink that specific wallet.
+    If address is None, unlink ALL wallets for the user.
+    """
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            if address:
+                result = await conn.execute(
+                    "DELETE FROM wallet_links WHERE telegram_id = $1 AND address = $2",
+                    telegram_id, address
+                )
+            else:
+                result = await conn.execute(
+                    "DELETE FROM wallet_links WHERE telegram_id = $1",
+                    telegram_id
+                )
+            deleted_count = int(result.split()[-1]) if result else 0
+            logger.info(f"Unlinked {deleted_count} wallet(s) for user {telegram_id}")
+            return deleted_count > 0
+    except Exception as e:
+        logger.error(f"Failed to unlink wallet: {e}")
+        return False
+
+
+async def get_all_user_wallets(telegram_id: str) -> List[Dict[str, Any]]:
+    """Get all wallets linked to a user"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT address, linked_via, label, created_at 
+            FROM wallet_links
+            WHERE telegram_id = $1
+            ORDER BY created_at ASC
+        """, telegram_id)
+        return [dict(row) for row in rows]
+
+
+async def full_account_reset(telegram_id: str) -> Dict[str, int]:
+    """
+    Completely reset a user's account:
+    - Unlink all wallets
+    - Clear conversation history
+    - Remove all contacts
+    Returns count of items removed.
+    """
+    pool = await get_pool()
+    results = {"wallets": 0, "conversations": 0, "contacts": 0}
+    
+    async with pool.acquire() as conn:
+        # Unlink wallets
+        wallet_result = await conn.execute(
+            "DELETE FROM wallet_links WHERE telegram_id = $1", telegram_id
+        )
+        results["wallets"] = int(wallet_result.split()[-1]) if wallet_result else 0
+        
+        # Clear conversation history
+        conv_result = await conn.execute(
+            "DELETE FROM conversation_history WHERE telegram_id = $1", telegram_id
+        )
+        results["conversations"] = int(conv_result.split()[-1]) if conv_result else 0
+        
+        # Remove contacts
+        contact_result = await conn.execute(
+            "DELETE FROM contacts WHERE telegram_id = $1", telegram_id
+        )
+        results["contacts"] = int(contact_result.split()[-1]) if contact_result else 0
+    
+    logger.info(f"Full account reset for {telegram_id}: {results}")
+    return results
+
+
 async def get_contacts(telegram_id: str) -> List[Dict[str, str]]:
     """Get user's contacts"""
     pool = await get_pool()

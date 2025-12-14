@@ -19,6 +19,8 @@ from src.database.postgres import (
     ensure_user,
     get_user_wallet,
     link_wallet,
+    unlink_wallet,
+    full_account_reset,
     get_contacts,
     add_contact,
     resolve_contact,
@@ -166,17 +168,19 @@ async def command_help_handler(message: Message) -> None:
         "<b>Commands:</b>\n"
         "/start - Connect your wallet\n"
         "/connect &lt;address&gt; - Manually link a wallet\n"
+        "/disconnect - Unlink your wallet\n"
         "/help - This help menu\n"
         "/balance - Check your SUI balance\n"
         "/send &lt;amount&gt; &lt;address&gt; - Send SUI\n"
         "/contacts - List saved contacts\n"
         "/contacts add &lt;name&gt; &lt;address&gt; - Add a contact\n"
         "/history - Recent transactions\n"
-        "/reset - Clear conversation history\n\n"
+        "/reset - Clear conversation history\n"
+        "/fullreset - Remove wallet, history &amp; contacts\n\n"
         "<b>Or just chat naturally:</b>\n"
         "\"What's my balance?\"\n"
         "\"Send 1 SUI to alice\"\n"
-        "\"Show my transaction history\""
+        "\"Disconnect my wallet\""
     )
     await safe_answer(message, wallet_commands, reply_markup=get_main_menu())
 
@@ -192,6 +196,52 @@ async def command_reset_handler(message: Message) -> None:
         message,
         "🧹 Conversation history cleared.\n\nI've forgotten our previous chat. How can I help you?",
         reply_markup=get_main_menu(),
+    )
+
+
+@router.message(Command("disconnect"))
+async def command_disconnect_handler(message: Message) -> None:
+    """Handle /disconnect command - unlink wallet from Telegram"""
+    user_id = str(message.from_user.id)
+    
+    wallet_address = await get_user_wallet(user_id)
+    if not wallet_address:
+        await safe_answer(
+            message,
+            "❌ No wallet is currently linked.\n\nUse /start to connect a wallet.",
+        )
+        return
+
+    success = await unlink_wallet(user_id)
+    
+    if success:
+        await safe_answer(
+            message,
+            f"🔓 Wallet disconnected!\n\n"
+            f"<code>{wallet_address}</code>\n\n"
+            f"Use /start to link a new wallet.",
+        )
+    else:
+        await safe_answer(
+            message,
+            "❌ Failed to disconnect wallet. Please try again.",
+        )
+
+
+@router.message(Command("fullreset"))
+async def command_fullreset_handler(message: Message) -> None:
+    """Handle /fullreset command - completely reset account"""
+    user_id = str(message.from_user.id)
+    
+    results = await full_account_reset(user_id)
+    
+    await safe_answer(
+        message,
+        f"🗑️ <b>Account fully reset!</b>\n\n"
+        f"• Wallets removed: {results['wallets']}\n"
+        f"• Conversations cleared: {results['conversations']}\n"
+        f"• Contacts removed: {results['contacts']}\n\n"
+        f"Use /start to set up your account again.",
     )
 
 

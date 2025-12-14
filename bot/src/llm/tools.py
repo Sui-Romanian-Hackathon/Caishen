@@ -6,10 +6,12 @@ from langchain_core.tools import tool
 from src.database.postgres import (
   add_contact,
   clear_conversation_history,
+  full_account_reset,
   get_contacts,
   get_user_wallet,
   remove_contact,
   resolve_contact,
+  unlink_wallet,
 )
 from src.llm.domains import Domain
 from src.services.sui import sui_service
@@ -202,7 +204,11 @@ def get_help() -> str:
 👥 Contacts: "show contacts" or /contacts
 🧾 History: "show my transactions" or /history
 🖼️ NFTs: "show my NFTs"
-🔄 Reset: "reset" to clear conversation
+
+🔄 Reset Options:
+• "reset" - Clear conversation history
+• "disconnect wallet" - Unlink your wallet
+• "full reset" - Remove wallet, history & contacts
 
 Just chat naturally - I understand!"""
 
@@ -221,6 +227,34 @@ async def reset_conversation(user_id: str) -> str:
   return "🔄 Conversation reset! How can I help you?"
 
 
+@tool
+async def disconnect_wallet(user_id: str) -> str:
+  """
+  Disconnect/unlink the wallet from the Telegram account.
+  Call when user says: 'disconnect wallet', 'unlink wallet', 'remove wallet', 'disconnect'.
+  """
+  success = await unlink_wallet(user_id)
+  if success:
+    return "🔓 Wallet disconnected! Use /start to link a new wallet."
+  return "❌ No wallet was linked to disconnect."
+
+
+@tool
+async def full_reset(user_id: str) -> str:
+  """
+  Completely reset account: unlink wallet, clear history, remove contacts.
+  Call when user says: 'full reset', 'delete everything', 'start completely fresh', 'remove all my data'.
+  """
+  results = await full_account_reset(user_id)
+  return (
+    f"🗑️ Account fully reset!\n\n"
+    f"• Wallets removed: {results['wallets']}\n"
+    f"• Conversations cleared: {results['conversations']}\n"
+    f"• Contacts removed: {results['contacts']}\n\n"
+    f"Use /start to set up your account again."
+  )
+
+
 # ============================================================================
 # TOOL REGISTRY
 # ============================================================================
@@ -235,6 +269,8 @@ ALL_TOOLS = [
   get_nfts,
   get_help,
   reset_conversation,
+  disconnect_wallet,
+  full_reset,
 ]
 
 DOMAIN_TOOLS: Dict[Domain, List] = {
@@ -243,7 +279,7 @@ DOMAIN_TOOLS: Dict[Domain, List] = {
   Domain.contacts: [list_contacts, add_new_contact, delete_contact],
   Domain.history: [get_transaction_history],
   Domain.nfts: [get_nfts],
-  Domain.help: [get_help, reset_conversation],  # Reset is part of help/utility
+  Domain.help: [get_help, reset_conversation, disconnect_wallet, full_reset],
   Domain.conversation: [],  # No tools - pure chat
 }
 
