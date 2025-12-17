@@ -26,6 +26,54 @@ import {
   TEST_ADDRESSES,
   createTestBinding
 } from '../fixtures/identities';
+import { mockFetch } from '../setup';
+import { loadZkLoginConfig } from '../../src/config/zklogin.config';
+import { AddressService, JwksCache, JwtValidator, SaltService, SaltStorage } from '../../src/zklogin';
+
+describe('Address Service (implementation)', () => {
+  const config = loadZkLoginConfig();
+  const jwksCache = new JwksCache(config.jwksUrl, config.jwksCacheTtlMs, mockFetch as unknown as typeof fetch);
+  const validator = new JwtValidator({
+    allowedIssuers: config.salt.allowedIssuers,
+    allowedAudiences: config.salt.allowedAudiences,
+    jwksCache,
+    skipSignatureVerification: true
+  });
+  const storage = new SaltStorage({ encryptionKey: config.encryptionKey, useInMemory: true });
+  const saltService = new SaltService({ config: config.salt, validator, storage });
+  const addressService = new AddressService({ validator, storage });
+
+  it('verifies derived address matches stored record', async () => {
+    const saltResult = await saltService.getSalt({
+      jwt: VALID_JWT_ALICE,
+      telegramId: TELEGRAM_USERS.alice.telegramId
+    });
+
+    const verification = await addressService.verifyAddress({
+      telegramId: TELEGRAM_USERS.alice.telegramId,
+      jwt: VALID_JWT_ALICE,
+      salt: saltResult.salt
+    });
+
+    expect(verification.matches).toBe(true);
+    expect(verification.derivedAddress.toLowerCase()).toBe(saltResult.derivedAddress.toLowerCase());
+  });
+
+  it('detects mismatched address for different JWT', async () => {
+    const saltResult = await saltService.getSalt({
+      jwt: VALID_JWT_ALICE,
+      telegramId: TELEGRAM_USERS.alice.telegramId
+    });
+
+    const verification = await addressService.verifyAddress({
+      telegramId: TELEGRAM_USERS.alice.telegramId,
+      jwt: VALID_JWT_BOB,
+      salt: saltResult.salt
+    });
+
+    expect(verification.matches).toBe(false);
+  });
+});
 
 // ============================================================================
 // Test Suite: Address Service

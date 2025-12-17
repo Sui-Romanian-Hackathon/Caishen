@@ -32,6 +32,62 @@ import {
   createProofRequest
 } from '../fixtures/identities';
 import { mockFetch, mockProverResponse, sleep } from '../setup';
+import { loadZkLoginConfig } from '../../src/config/zklogin.config';
+import { ProofRequest, ProofService, ZkLoginError } from '../../src/zklogin';
+
+vi.mock('../../src/mystenProver', () => ({
+  submitProofRequest: vi.fn(async () => mockProverResponse)
+}));
+
+import { submitProofRequest } from '../../src/mystenProver';
+
+describe('Proof Service (implementation)', () => {
+  const baseConfig = loadZkLoginConfig();
+
+  function createService(overrides?: Partial<typeof baseConfig.rateLimits>) {
+    const rateLimits = {
+      ...baseConfig.rateLimits,
+      ...(overrides || {}),
+      perIp: { ...baseConfig.rateLimits.perIp, ...(overrides?.perIp || {}) },
+      perTelegramId: {
+        ...baseConfig.rateLimits.perTelegramId,
+        ...(overrides?.perTelegramId || {})
+      },
+      global: { ...baseConfig.rateLimits.global, ...(overrides?.global || {}) }
+    };
+
+    return new ProofService({
+      rateLimits,
+      proverUrl: baseConfig.proverUrl,
+      timeoutMs: baseConfig.proverTimeoutMs
+    });
+  }
+
+  it('rejects requests missing required fields', async () => {
+    const service = createService();
+    const request = createProofRequest(VALID_JWT_ALICE, '123456');
+    const invalidRequest = { ...request };
+    delete (invalidRequest as any).jwtRandomness;
+    await expect(service.generateProof(invalidRequest as ProofRequest)).rejects.toThrow(ZkLoginError);
+  });
+
+  it('proxies to Mysten prover', async () => {
+    const service = createService();
+    const request = createProofRequest(VALID_JWT_ALICE, '123456789');
+    const response = await service.generateProof(request, { ip: '1.1.1.1' });
+    expect(submitProofRequest).toHaveBeenCalled();
+    expect(response.proofPoints).toBeDefined();
+  });
+
+  it('enforces rate limits per IP', async () => {
+    const service = createService({
+      perIp: { windowMs: 60_000, maxRequests: 1 }
+    });
+    const request = createProofRequest(VALID_JWT_ALICE, '123456789');
+    await service.generateProof(request, { ip: '2.2.2.2' });
+    await expect(service.generateProof(request, { ip: '2.2.2.2' })).rejects.toThrow(/Rate limit/i);
+  });
+});
 
 // ============================================================================
 // Test Suite: Proof Service
@@ -61,8 +117,8 @@ describe('Proof Service', () => {
           VALID_JWT_ALICE,
           '150862062947206198448536405856390800536'
         );
-        const invalidRequest = { ...validRequest };
-        delete (invalidRequest as Record<string, unknown>)[field];
+        const invalidRequest = { ...validRequest } as Partial<ProofRequest>;
+        delete invalidRequest[field as keyof ProofRequest];
         
         // Act
         // TODO: Implement proof service
@@ -72,7 +128,7 @@ describe('Proof Service', () => {
         // expect(response.error).toContain(field);
         // expect(response.status).toBe(400);
         
-        expect((invalidRequest as Record<string, unknown>)[field]).toBeUndefined();
+        expect(invalidRequest[field as keyof ProofRequest]).toBeUndefined();
       });
     });
     
@@ -113,7 +169,7 @@ describe('Proof Service', () => {
       
       // Assert all fields present
       requiredFields.forEach(field => {
-        expect((validRequest as Record<string, unknown>)[field]).toBeDefined();
+        expect(validRequest[field as keyof ProofRequest]).toBeDefined();
       });
     });
     
@@ -223,18 +279,18 @@ describe('Proof Service', () => {
     
     it('should allow requests without telegramId but at IP rate', async () => {
       // Arrange
-      const request = createProofRequest(
+      const request = { ...createProofRequest(
         VALID_JWT_ALICE,
         '150862062947206198448536405856390800536'
-      );
+      ) } as ProofRequest;
       // No telegramId provided
-      delete (request as Record<string, unknown>).telegramId;
+      delete (request as any).telegramId;
       
       // Act & Assert
       // Should use IP-based limiting
       // TODO: Implement and test
       
-      expect((request as Record<string, unknown>).telegramId).toBeUndefined();
+      expect((request as any).telegramId).toBeUndefined();
     });
     
   });
@@ -393,7 +449,7 @@ describe('Proof Service', () => {
       const request = createProofRequest(
         VALID_JWT_ALICE,
         '150862062947206198448536405856390800536',
-        { telegramId: TELEGRAM_USERS.alice.telegramId } as Record<string, unknown>
+        { telegramId: TELEGRAM_USERS.alice.telegramId }
       );
       
       // Act

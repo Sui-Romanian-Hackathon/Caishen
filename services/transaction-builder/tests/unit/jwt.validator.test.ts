@@ -47,6 +47,31 @@ import {
   isCacheExpired
 } from '../fixtures/jwks';
 import { mockFetch } from '../setup';
+import { loadZkLoginConfig } from '../../src/config/zklogin.config';
+import { JwksCache, JwtValidator } from '../../src/zklogin';
+
+describe('JWT Validator (implementation)', () => {
+  const config = loadZkLoginConfig();
+  const jwksCache = new JwksCache(config.jwksUrl, config.jwksCacheTtlMs, mockFetch as unknown as typeof fetch);
+  const validator = new JwtValidator({
+    allowedIssuers: config.salt.allowedIssuers,
+    allowedAudiences: config.salt.allowedAudiences,
+    jwksCache,
+    skipSignatureVerification: true
+  });
+
+  it('validates and returns claims for a good token', async () => {
+    const result = await validator.validate(VALID_JWT_ALICE);
+    expect(result.valid).toBe(true);
+    expect(result.claims?.sub).toBe(TEST_IDENTITIES.alice.sub);
+  });
+
+  it('rejects tokens with wrong issuer', async () => {
+    const result = await validator.validate(WRONG_ISSUER_JWT);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/issuer/i);
+  });
+});
 
 // ============================================================================
 // Test Suite: JWT Validator

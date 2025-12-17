@@ -7,21 +7,6 @@ let schemaReady: Promise<void> | null = null;
 
 async function ensureSchema(db: pg.Pool) {
   await db.query('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
-
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      telegram_id text,
-      tx_bytes text,
-      status text NOT NULL DEFAULT 'pending',
-      digest text,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    );
-  `);
-  await db.query(
-    `CREATE INDEX IF NOT EXISTS idx_transactions_telegram_id ON transactions (telegram_id);`
-  );
 }
 
 export function initDb() {
@@ -69,6 +54,13 @@ export function dbReady() {
   return Boolean(pool);
 }
 
+export function getDbPool(): pg.Pool {
+  if (!pool) {
+    initDb();
+  }
+  return pool!;
+}
+
 async function getDb(): Promise<pg.Pool> {
   if (!pool) {
     initDb();
@@ -80,47 +72,88 @@ async function getDb(): Promise<pg.Pool> {
   return pool!;
 }
 
+async function withTenant<T>(telegramId: string, fn: (client: pg.PoolClient) => Promise<T>) {
+  const db = await getDb();
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL app.current_telegram_id = $1', [telegramId]);
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function ensureUser(telegramId: string) {
+  await withTenant(telegramId, client =>
+    client.query(
+      `INSERT INTO users (telegram_id)
+       VALUES ($1)
+       ON CONFLICT (telegram_id) DO UPDATE SET last_seen_at = NOW()`,
+      [telegramId]
+    )
+  );
+}
+
 export async function insertTransaction(params: {
-  telegramId?: string;
+  telegramId: string;
   txBytes?: string;
   status?: string;
   digest?: string;
 }) {
-  const db = await getDb();
-  const result = await db.query(
-    `INSERT INTO transactions (telegram_id, tx_bytes, status, digest)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id`,
-    [
-      params.telegramId || null,
-      params.txBytes || null,
-      params.status || 'pending',
-      params.digest || null,
-    ]
+  if (!params.telegramId) {
+    throw new Error('telegramId is required for inserting transactions');
+  }
+
+  await ensureUser(params.telegramId);
+
+  const result = await withTenant(params.telegramId, client =>
+    client.query(
+      `INSERT INTO transactions (telegram_id, tx_bytes, status, digest)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [
+        params.telegramId,
+        params.txBytes || null,
+        params.status || 'pending',
+        params.digest || null,
+      ]
+    )
   );
   return result.rows[0].id;
 }
 
-export async function updateTransactionStatus(params: { id: string; status: string; digest?: string }) {
-  const db = await getDb();
-  const result = await db.query(
-    `UPDATE transactions
-     SET status = $1, digest = COALESCE($2, digest), updated_at = NOW()
-     WHERE id = $3`,
-    [params.status, params.digest || null, params.id]
+export async function updateTransactionStatus(params: { id: string; status: string; digest?: string; telegramId: string }) {
+  if (!params.telegramId) {
+    throw new Error('telegramId is required for updating transactions');
+  }
+
+  const result = await withTenant(params.telegramId, client =>
+    client.query(
+      `UPDATE transactions
+       SET status = $1, digest = COALESCE($2, digest), updated_at = NOW()
+       WHERE id = $3 AND telegram_id = $4`,
+      [params.status, params.digest || null, params.id, params.telegramId]
+    )
   );
   return result.rowCount! > 0;
 }
 
 export async function listTransactionsByTelegram(telegramId: string, limit = 50) {
-  const db = await getDb();
-  const result = await db.query(
-    `SELECT id, telegram_id, status, digest, created_at, updated_at
-     FROM transactions
-     WHERE telegram_id = $1
-     ORDER BY created_at DESC
-     LIMIT $2`,
-    [telegramId, limit]
+  const result = await withTenant(telegramId, client =>
+    client.query(
+      `SELECT id, telegram_id, status, digest, created_at, updated_at
+       FROM transactions
+       WHERE telegram_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [telegramId, limit]
+    )
   );
   return result.rows;
 }

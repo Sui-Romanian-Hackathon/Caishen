@@ -33,6 +33,63 @@ import {
   TEST_IDENTITIES
 } from '../fixtures/jwts';
 import { TELEGRAM_USERS, createSaltRequest } from '../fixtures/identities';
+import { loadZkLoginConfig } from '../../src/config/zklogin.config';
+import { JwksCache, JwtValidator, SaltService, SaltStorage } from '../../src/zklogin';
+import { mockFetch } from '../setup';
+
+describe('Salt Service (implementation)', () => {
+  let service: SaltService;
+
+  beforeEach(() => {
+    const config = loadZkLoginConfig();
+    const jwksCache = new JwksCache(config.jwksUrl, config.jwksCacheTtlMs, mockFetch as unknown as typeof fetch);
+    const validator = new JwtValidator({
+      allowedIssuers: config.salt.allowedIssuers,
+      allowedAudiences: config.salt.allowedAudiences,
+      jwksCache,
+      skipSignatureVerification: true
+    });
+    const storage = new SaltStorage({
+      encryptionKey: config.encryptionKey,
+      useInMemory: true
+    });
+    service = new SaltService({ config: config.salt, validator, storage });
+  });
+
+  it('derives deterministic salt and stores by identity', async () => {
+    const first = await service.getSalt({
+      jwt: VALID_JWT_ALICE,
+      telegramId: TELEGRAM_USERS.alice.telegramId
+    });
+    const second = await service.getSalt({
+      jwt: VALID_JWT_ALICE,
+      telegramId: TELEGRAM_USERS.alice.telegramId
+    });
+
+    expect(first.salt).toBe(second.salt);
+    expect(first.derivedAddress).toBeDefined();
+    expect(first.provider).toBe('https://accounts.google.com');
+  });
+
+  it('returns different salts for different subjects', async () => {
+    const alice = await service.getSalt({
+      jwt: VALID_JWT_ALICE,
+      telegramId: TELEGRAM_USERS.alice.telegramId
+    });
+    const bob = await service.getSalt({
+      jwt: VALID_JWT_BOB,
+      telegramId: TELEGRAM_USERS.bob.telegramId
+    });
+
+    expect(alice.salt).not.toBe(bob.salt);
+  });
+
+  it('rejects missing jwt', async () => {
+    await expect(
+      service.getSalt({ telegramId: TELEGRAM_USERS.alice.telegramId, jwt: '' })
+    ).rejects.toThrow(/jwt is required/i);
+  });
+});
 
 // ============================================================================
 // Test Suite: Salt Service

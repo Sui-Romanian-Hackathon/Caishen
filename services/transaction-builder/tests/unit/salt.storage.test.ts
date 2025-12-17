@@ -16,6 +16,45 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
 import { DB_MOCK_RECORDS, LINKED_USERS, TEST_ADDRESSES } from '../fixtures/identities';
+import { decryptSaltForTest, encryptSaltForTest, SaltStorage } from '../../src/zklogin';
+import { loadZkLoginConfig } from '../../src/config/zklogin.config';
+
+describe('Salt Storage (implementation)', () => {
+  const config = loadZkLoginConfig();
+
+  it('encrypts and decrypts salts with AES-256-GCM', () => {
+    const plain = TEST_ADDRESSES.alice.salt;
+    const { encrypted, iv } = encryptSaltForTest(plain, config.encryptionKey);
+    const decrypted = decryptSaltForTest(encrypted, iv, config.encryptionKey);
+    expect(decrypted).toBe(plain);
+    expect(iv).toBeInstanceOf(Buffer);
+    expect(encrypted.equals(Buffer.from(plain, 'utf8'))).toBe(false);
+  });
+
+  it('stores and retrieves salts in memory', async () => {
+    const storage = new SaltStorage({ encryptionKey: config.encryptionKey, useInMemory: true });
+    const record = {
+      telegramId: LINKED_USERS.alice.telegramId,
+      provider: LINKED_USERS.alice.provider,
+      subject: LINKED_USERS.alice.subject,
+      audience: LINKED_USERS.alice.audience,
+      salt: TEST_ADDRESSES.alice.salt,
+      derivedAddress: TEST_ADDRESSES.alice.zkLoginAddress,
+      keyClaimName: LINKED_USERS.alice.keyClaimName
+    };
+
+    const saved = await storage.getOrCreate(record);
+    expect(saved.salt).toBe(record.salt);
+
+    const fetched = await storage.getSalt(
+      record.provider,
+      record.subject,
+      record.audience,
+      record.telegramId
+    );
+    expect(fetched?.derivedAddress).toBe(record.derivedAddress);
+  });
+});
 
 // ============================================================================
 // Test Suite: Salt Storage
@@ -153,6 +192,7 @@ describe('Salt Storage', () => {
         'provider',
         'subject',
         'audience',
+        'salt',
         'salt_encrypted',
         'encryption_iv',
         'derived_address',

@@ -48,16 +48,23 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- zkLogin salt + subject bindings
+-- zkLogin salt + subject bindings (with encrypted storage)
 CREATE TABLE IF NOT EXISTS zklogin_salts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   telegram_id text NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
   provider text NOT NULL,
   subject text NOT NULL,
-  salt text NOT NULL,
+  audience text NOT NULL,                    -- OAuth client ID (for identity uniqueness)
+  salt text NOT NULL,                        -- Plain salt (legacy, being phased out)
+  salt_encrypted bytea,                      -- AES-256-GCM encrypted salt
+  encryption_iv bytea,                       -- Initialization vector for decryption
+  derived_address text,                      -- Pre-computed zkLogin address for lookups
+  key_claim_name text NOT NULL DEFAULT 'sub',
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (provider, subject)
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider, subject, audience)
 );
+CREATE INDEX IF NOT EXISTS idx_zklogin_salts_address ON zklogin_salts(derived_address);
 
 -- OAuth/nonce state tracking
 CREATE TABLE IF NOT EXISTS oauth_states (

@@ -2,7 +2,7 @@
 
 > **Document Type**: Agentic Coding Agent PRD + Implementation Prompt  
 > **Version**: 1.0.0  
-> **Last Updated**: 2025-12-15  
+> **Last Updated**: 2025-12-17  
 > **Target Service**: `services/transaction-builder` (salt + proof backend)
 
 ---
@@ -59,23 +59,28 @@ git commit -m "fix(zklogin): <description>"
 
 ```markdown
 <!-- AGENT_NOTES_START -->
-Implementation Date: _______________
-Current Phase: _______________
-Blockers Encountered: 
-  - 
-  - 
+Implementation Date: 2025-12-17
+Current Phase: Phase 2 infra hardened (salt storage + proof proxy + typing)
+Recent Work:
+  - Aligned DB access with schema/RLS: every salt/tx query sets app.current_telegram_id and upserts users to satisfy FKs; salts persist both plain salt + encrypted fields.
+  - Proof proxy typed end-to-end (ProofRequest/ProofResponse), mystenProver returns typed response, fixtures return typed proof requests.
+  - Added tsconfig.vitest.json to load vitest globals; tests/setup imports expect to fix missing global errors.
+  - JWKS typing fixed to use jose JWK across validator/cache/types.
+Blockers Encountered:
+  - Database migration must be applied (database/init/001_schema.sql) in each env; otherwise RLS/columns will fail.
+  - Need real JWKS + signed JWTs to enable signature verification outside test mode.
 Decisions Made:
-  - 
-  - 
+  - Keep signature verification skipped in tests; production path remains intact.
+  - Keep in-memory salt storage for tests, DB path uses RLS and encrypted storage.
 Next Steps:
-  - 
-  - 
+  - Run DB migration and verify RLS path end-to-end.
+  - Update clients to always send telegramId to tx endpoints (required by RLS).
+  - Add integration tests hitting salt/proof/tx endpoints with the new tenant context.
 Test Coverage Status:
-  - Unit: ____%
-  - Integration: ____%
+  - Type checks: npx tsc and npx tsc -p tsconfig.vitest.json pass.
+  - Unit/Integration: not re-run yet after this hardening.
 Regression Issues Found:
-  - 
-  - 
+  - None observed so far
 <!-- AGENT_NOTES_END -->
 ```
 

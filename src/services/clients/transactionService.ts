@@ -8,7 +8,7 @@ const client = axios.create({
 });
 
 export async function logTransaction(params: {
-  telegramId?: string;
+  telegramId: string;
   txBytes?: string;
   status?: string;
   digest?: string;
@@ -26,6 +26,7 @@ export async function updateTransactionStatus(params: {
   id: string;
   status: string;
   digest?: string;
+  telegramId: string;
 }) {
   try {
     await client.post('/api/v1/tx/status', params);

@@ -1,13 +1,18 @@
 import express from 'express';
 import pino from 'pino';
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { dbReady, getDbPool, initDb, insertTransaction, listTransactionsByTelegram, updateTransactionStatus } from './db';
+import { loadZkLoginConfig } from './config/zklogin.config';
 import {
-  dbReady,
-  initDb,
-  insertTransaction,
-  listTransactionsByTelegram,
-  updateTransactionStatus
-} from './db';
+  AddressService,
+  JwksCache,
+  JwtValidator,
+  ProofService,
+  SaltRequest,
+  SaltService,
+  SaltStorage,
+  ZkLoginError
+} from './zklogin';
 
 const PORT = Number(process.env.PORT || 3003);
 const SUI_NETWORK = (process.env.SUI_NETWORK as 'mainnet' | 'testnet' | 'devnet') || 'testnet';
@@ -35,15 +40,91 @@ async function estimateGasBudget(params: { type: 'sui' | 'token' | 'nft'; sender
 }
 const SERVICE_NAME = 'transaction-builder';
 const logger = pino({ name: SERVICE_NAME });
+let saltService: SaltService;
+let proofService: ProofService;
+let addressService: AddressService;
+let jwksCache: JwksCache | null = null;
+
+function getRequestIp(req: express.Request): string | undefined {
+  const headerIp = req.headers['x-forwarded-for'];
+  if (typeof headerIp === 'string') {
+    return headerIp.split(',')[0].trim();
+  }
+  if (Array.isArray(headerIp) && headerIp.length > 0) {
+    return headerIp[0];
+  }
+  return req.ip;
+}
+
+function handleZkLoginError(err: unknown, res: express.Response, message: string) {
+  if (err instanceof ZkLoginError) {
+    if (err.retryAfter) {
+      res.setHeader('Retry-After', String(err.retryAfter));
+    }
+    res.status(err.status).json({ error: err.message, retryAfter: err.retryAfter });
+    return;
+  }
+  logger.error({ err }, message);
+  res.status(500).json({ error: 'Internal server error' });
+}
+
+function bootstrapZkLogin() {
+  const config = loadZkLoginConfig();
+  jwksCache = new JwksCache(config.jwksUrl, config.jwksCacheTtlMs);
+
+  const validator = new JwtValidator({
+    allowedIssuers: config.salt.allowedIssuers,
+    allowedAudiences: config.salt.allowedAudiences,
+    jwksCache,
+    skipSignatureVerification: config.salt.skipSignatureVerification
+  });
+
+  const dbPool = getDbPool();
+  const storage = new SaltStorage({
+    encryptionKey: config.encryptionKey,
+    db: dbPool,
+    useInMemory: process.env.NODE_ENV === 'test'
+  });
+
+  saltService = new SaltService({
+    config: config.salt,
+    validator,
+    storage,
+    logger
+  });
+
+  proofService = new ProofService({
+    rateLimits: config.rateLimits,
+    proverUrl: config.proverUrl,
+    timeoutMs: config.proverTimeoutMs,
+    logger
+  });
+
+  addressService = new AddressService({
+    validator,
+    storage,
+    logger
+  });
+}
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => {
+  const jwksStatus = jwksCache
+    ? {
+        healthy: true,
+        expired: jwksCache.isExpired(),
+        cachedKeys: jwksCache.snapshot()?.keys.length ?? 0
+      }
+    : { healthy: false };
+
+  const healthy = dbReady() && jwksStatus.healthy;
   res.json({
-    status: 'ok',
+    status: healthy ? 'ok' : 'degraded',
     service: SERVICE_NAME,
     dbReady: dbReady(),
+    jwksCache: jwksStatus,
     timestamp: new Date().toISOString()
   });
 });
@@ -58,11 +139,15 @@ app.post('/api/v1/tx/preview', (req, res) => {
   });
 });
 
-app.post('/api/v1/tx/log', (req, res) => {
+app.post('/api/v1/tx/log', async (req, res) => {
   const { telegramId, txBytes, status, digest } = req.body ?? {};
+  if (!telegramId) {
+    res.status(400).json({ error: 'telegramId is required' });
+    return;
+  }
   try {
-    const id = insertTransaction({
-      telegramId: telegramId ? String(telegramId) : undefined,
+    const id = await insertTransaction({
+      telegramId: String(telegramId),
       txBytes: txBytes ? String(txBytes) : undefined,
       status: status ? String(status) : undefined,
       digest: digest ? String(digest) : undefined
@@ -74,18 +159,19 @@ app.post('/api/v1/tx/log', (req, res) => {
   }
 });
 
-app.post('/api/v1/tx/status', (req, res) => {
-  const { id, status, digest } = req.body ?? {};
-  if (!id || !status) {
-    res.status(400).json({ error: 'id and status are required' });
+app.post('/api/v1/tx/status', async (req, res) => {
+  const { id, status, digest, telegramId } = req.body ?? {};
+  if (!id || !status || !telegramId) {
+    res.status(400).json({ error: 'id, telegramId, and status are required' });
     return;
   }
 
   try {
-    const updated = updateTransactionStatus({
+    const updated = await updateTransactionStatus({
       id: String(id),
       status: String(status),
-      digest: digest ? String(digest) : undefined
+      digest: digest ? String(digest) : undefined,
+      telegramId: String(telegramId)
     });
     if (!updated) {
       res.status(404).json({ error: 'transaction not found' });
@@ -98,7 +184,7 @@ app.post('/api/v1/tx/status', (req, res) => {
   }
 });
 
-app.get('/api/v1/tx/history/:telegramId', (req, res) => {
+app.get('/api/v1/tx/history/:telegramId', async (req, res) => {
   const telegramId = req.params.telegramId;
   const limit = Number(req.query.limit ?? 50);
   if (!telegramId) {
@@ -106,7 +192,7 @@ app.get('/api/v1/tx/history/:telegramId', (req, res) => {
     return;
   }
   try {
-    const history = listTransactionsByTelegram(
+    const history = await listTransactionsByTelegram(
       String(telegramId),
       Number.isFinite(limit) ? limit : 50
     );
@@ -132,12 +218,59 @@ app.post('/api/v1/tx/estimate', async (req, res) => {
   }
 });
 
+app.post('/api/v1/zklogin/salt', async (req, res) => {
+  try {
+    const payload = req.body as SaltRequest;
+    const result = await saltService.getSalt(payload);
+    res.json(result);
+  } catch (err) {
+    handleZkLoginError(err, res, 'Salt request failed');
+  }
+});
+
+app.post('/api/v1/zklogin/proof', async (req, res) => {
+  try {
+    const ip = getRequestIp(req);
+    const result = await proofService.generateProof(req.body, { ip });
+    res.json(result);
+  } catch (err) {
+    handleZkLoginError(err, res, 'Proof request failed');
+  }
+});
+
+app.post('/api/v1/zklogin/verify-address', async (req, res) => {
+  try {
+    const { telegramId, jwt, salt, keyClaimName } = req.body ?? {};
+    const result = await addressService.verifyAddress({
+      telegramId,
+      jwt,
+      salt,
+      keyClaimName
+    });
+    if (!result.matches) {
+      res.status(403).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    handleZkLoginError(err, res, 'Address verification failed');
+  }
+});
+
 function start() {
   try {
     initDb();
     logger.info('PostgreSQL pool initialized');
   } catch (err) {
     logger.error({ err }, 'Failed to initialize database');
+    process.exit(1);
+  }
+
+  try {
+    bootstrapZkLogin();
+    logger.info('zkLogin services initialized');
+  } catch (err) {
+    logger.error({ err }, 'Failed to initialize zkLogin services');
     process.exit(1);
   }
 

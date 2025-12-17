@@ -5,7 +5,7 @@
  * for all zkLogin-related tests.
  */
 
-import { vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { vi, beforeAll, afterAll, beforeEach, afterEach, expect } from 'vitest';
 
 // ============================================================================
 // Environment Variables (Test Configuration)
@@ -14,7 +14,8 @@ import { vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 process.env.NODE_ENV = 'test';
 process.env.PORT = '3003';
 process.env.ZKLOGIN_MASTER_SECRET = 'test_master_secret_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-process.env.ZKLOGIN_ENCRYPTION_KEY = 'test_encryption_key_0123456789abcdef0123456789abcdef';
+process.env.ZKLOGIN_ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+process.env.ZKLOGIN_SKIP_SIGNATURE = 'true';
 process.env.GOOGLE_CLIENT_ID = 'test_client_id.apps.googleusercontent.com';
 process.env.PROVER_URL = 'http://localhost:9999/mock-prover';
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/caishen_test';

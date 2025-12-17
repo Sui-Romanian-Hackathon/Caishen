@@ -7,6 +7,8 @@
  * - Linked wallet addresses
  */
 
+import { ProofRequest } from '../../src/zklogin/types';
+
 // ============================================================================
 // Telegram Test Users
 // ============================================================================
@@ -230,6 +232,7 @@ export const DB_MOCK_RECORDS = {
       provider: 'google',
       subject: GOOGLE_IDENTITIES.alice.sub,
       audience: 'test_client_id.apps.googleusercontent.com',
+      salt: TEST_ADDRESSES.alice.salt,
       salt_encrypted: Buffer.from('encrypted_salt_alice'),
       encryption_iv: Buffer.from('random_iv_alice'),
       derived_address: TEST_ADDRESSES.alice.zkLoginAddress,
@@ -243,6 +246,7 @@ export const DB_MOCK_RECORDS = {
       provider: 'google',
       subject: GOOGLE_IDENTITIES.bob.sub,
       audience: 'test_client_id.apps.googleusercontent.com',
+      salt: TEST_ADDRESSES.bob.salt,
       salt_encrypted: Buffer.from('encrypted_salt_bob'),
       encryption_iv: Buffer.from('random_iv_bob_12'),
       derived_address: TEST_ADDRESSES.bob.zkLoginAddress,
@@ -296,8 +300,8 @@ export function createSaltRequest(
 export function createProofRequest(
   jwt: string,
   salt: string,
-  overrides: Partial<typeof PROOF_REQUEST_FIXTURES.valid> = {}
-): Record<string, unknown> {
+  overrides: Partial<ProofRequest> = {}
+): ProofRequest {
   return {
     jwt,
     salt,
