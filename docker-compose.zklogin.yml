@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  zklogin-db:
+    image: postgres:16-alpine
+    container_name: zklogin-db
+    environment:
+      - POSTGRES_USER=caishen
+      - POSTGRES_PASSWORD=copilot_secret
+      - POSTGRES_DB=caishen_wallet
+    volumes:
+      - zklogin_pgdata:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U caishen -d caishen_wallet']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - zklogin-net
+
+  zklogin-transaction-builder:
+    build:
+      context: ./services/transaction-builder
+      dockerfile: Dockerfile
+    container_name: zklogin-transaction-builder
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+      - DATABASE_URL=${DATABASE_URL:-postgresql://caishen:copilot_secret@zklogin-db:5432/caishen_wallet}
+      - ZKLOGIN_MASTER_SECRET=${ZKLOGIN_MASTER_SECRET}
+      - ZKLOGIN_ENCRYPTION_KEY=${ZKLOGIN_ENCRYPTION_KEY}
+      - GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID}}
+      - ZKLOGIN_ALLOWED_AUDIENCES=${VITE_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID}}
+      - ZKLOGIN_ALLOWED_ISSUERS=${ZKLOGIN_ALLOWED_ISSUERS:-https://accounts.google.com}
+      - PROVER_URL=${VITE_ZKLOGIN_PROVER_URL:-https://prover-dev.mystenlabs.com/v1}
+      - ZKLOGIN_SKIP_SIGNATURE=${ZKLOGIN_SKIP_SIGNATURE:-true}
+      - RATE_LIMIT_PER_IP_WINDOW_MS=${RATE_LIMIT_PER_IP_WINDOW_MS:-60000}
+      - RATE_LIMIT_PER_IP_MAX_REQUESTS=${RATE_LIMIT_PER_IP_MAX_REQUESTS:-10}
+      - RATE_LIMIT_PER_USER_WINDOW_MS=${RATE_LIMIT_PER_USER_WINDOW_MS:-60000}
+      - RATE_LIMIT_PER_USER_MAX_REQUESTS=${RATE_LIMIT_PER_USER_MAX_REQUESTS:-5}
+    ports:
+      - '3003:3003'
+    depends_on:
+      zklogin-db:
+        condition: service_healthy
+      mock-prover:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - zklogin-net
+
+  mock-prover:
+    image: node:20-alpine
+    container_name: zklogin-mock-prover
+    command: >
+      sh -c "node -e \"
+        const http = require('http');
+        const response = {
+          proofPoints: { a: ['a1'], b: [['b11','b12']], c: ['c1'] },
+          issBase64Details: { value: 'dGVzdA==', indexMod4: 1 },
+          headerBase64: 'dGVzdF9oZWFkZXI='
+        };
+        http.createServer((req, res) => {
+          req.on('data', () => {});
+          req.on('end', () => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(response));
+          });
+        }).listen(8080, '0.0.0.0', () => console.log('Mock prover listening on 8080'));
+      \""
+    ports:
+      - '8080:8080'
+    networks:
+      - zklogin-net
+    restart: unless-stopped
+
+volumes:
+  zklogin_pgdata:
+    driver: local
+
+networks:
+  zklogin-net:
+    driver: bridge
