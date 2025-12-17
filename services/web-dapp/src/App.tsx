@@ -494,7 +494,7 @@ function SendFundsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [digest, setDigest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [senderParam] = useState(() => {
+  const [senderParam, setSenderParam] = useState(() => {
     // First check sessionStorage (for OAuth callback)
     const stored = sessionStorage.getItem('zklogin_eph');
     if (stored) {
@@ -597,7 +597,16 @@ function SendFundsPage() {
         });
         setMode(data.mode || 'wallet');
         if (data.salt) setSalt(data.salt);
+        if (data.sender) setSenderParam(data.sender);
         if (data.expiresAt) setPendingTxExpiry(data.expiresAt);
+
+        console.log('[pendingTx] Loaded from API:', {
+          recipient: data.recipient,
+          amount: data.amount,
+          sender: data.sender,
+          salt: data.salt,
+          mode: data.mode
+        });
 
         // Clean URL after loading (remove tx param)
         const url = new URL(window.location.href);
@@ -614,19 +623,23 @@ function SendFundsPage() {
     fetchPendingTx();
   }, [pendingTxId]);
 
-  // Derive zkLogin address when JWT changes (using hardcoded salt)
+  // Derive zkLogin address when JWT or salt changes
   useEffect(() => {
     if (jwtToken) {
       try {
-        const addr = jwtToAddress(jwtToken, BigInt(HARDCODED_SALT));
+        const effectiveSalt = salt || HARDCODED_SALT;
+        const { saltBigInt } = normalizeSalt(effectiveSalt);
+        const addr = jwtToAddress(jwtToken, saltBigInt);
         setZkAddress(addr);
-      } catch {
+        console.log('[zkLogin] Derived address with salt:', { salt: effectiveSalt, address: addr });
+      } catch (err) {
+        console.error('[zkLogin] Failed to derive address:', err);
         setZkAddress(null);
       }
     } else {
       setZkAddress(null);
     }
-  }, [jwtToken]);
+  }, [jwtToken, salt]);
 
   // Estimate gas when form changes
   useEffect(() => {
@@ -849,13 +862,15 @@ function SendFundsPage() {
       console.log('[zkLogin] aud:', aud);  
       console.log('[zkLogin] iss:', iss);
 
-      // Use hardcoded salt (hackathon mode - same salt for all users)
-      const saltValue = HARDCODED_SALT;
-      const saltBigInt = BigInt(saltValue);
-      setSalt(saltValue);
+      // Use salt from pending tx API if available, otherwise fallback to hardcoded salt
+      const rawSaltValue = salt || HARDCODED_SALT;
+      const { saltBigInt, saltString: saltValue } = normalizeSalt(rawSaltValue);
+      if (!salt) setSalt(saltValue);
       console.log('[zkLogin] ===== SALT =====');
-      console.log('[zkLogin] saltValue (string):', saltValue);
+      console.log('[zkLogin] rawSaltValue:', rawSaltValue);
+      console.log('[zkLogin] saltValue (normalized):', saltValue);
       console.log('[zkLogin] saltBigInt:', saltBigInt.toString());
+      console.log('[zkLogin] Using salt from:', salt ? 'pending tx API' : 'HARDCODED fallback');
 
       // 2) Derive zkLogin address
       const zkAddr = jwtToAddress(jwtToken, saltBigInt);
