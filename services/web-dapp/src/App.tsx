@@ -671,9 +671,9 @@ function SendFundsPage() {
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
       // Store keypair info AND transaction params in sessionStorage for callback
-      // Note: getSecretKey() returns a base64 string in newer SDK versions
+      // Note: getSecretKey() returns a Uint8Array - we convert to Array for JSON serialization
       sessionStorage.setItem('zklogin_eph', JSON.stringify({
-        secretKey: eph.getSecretKey(), // Already a base64 string
+        secretKey: Array.from(eph.getSecretKey()), // Convert Uint8Array to Array for JSON
         maxEpoch: maxEp,
         randomness: rand.toString(),
         // Preserve transaction params for after OAuth
@@ -716,8 +716,8 @@ function SendFundsPage() {
           hasTxParams: !!data.txParams
         });
         
-        // secretKey is stored as base64 string
-        const eph = Ed25519Keypair.fromSecretKey(data.secretKey);
+        // secretKey is stored as array of bytes, convert back to Uint8Array
+        const eph = Ed25519Keypair.fromSecretKey(new Uint8Array(data.secretKey));
         setEphemeralKeypair(eph);
         setMaxEpoch(data.maxEpoch);
         setRandomness(data.randomness);
