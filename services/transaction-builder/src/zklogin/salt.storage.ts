@@ -91,7 +91,8 @@ export class SaltStorage {
     const client = await this.db.connect();
     try {
       await client.query('BEGIN');
-      await client.query('SET LOCAL app.current_telegram_id = $1', [telegramId]);
+      // Use set_config() instead of SET LOCAL - supports parameterized queries
+      await client.query('SELECT set_config($1, $2, true)', ['app.current_telegram_id', telegramId]);
       const result = await fn(client);
       await client.query('COMMIT');
       return result;
