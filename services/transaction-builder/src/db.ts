@@ -14,14 +14,23 @@ export function initDb() {
 
   // Prefer individual parameters to avoid URL-encoding issues with special chars in passwords
   const host = process.env.POSTGRES_HOST || process.env.PGHOST;
-  const port = process.env.POSTGRES_PORT || process.env.PGPORT;
+  const port = process.env.POSTGRES_PORT || process.env.PGPORT || '5432';
   const user = process.env.POSTGRES_USER || process.env.PGUSER;
   const password = process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD;
   const database = process.env.POSTGRES_DB || process.env.PGDATABASE;
 
-  if (host && user && database) {
+  // Build connection string from POSTGRES_* when user is provided, even if DATABASE_URL exists.
+  // This avoids breakage when DATABASE_URL has unsafe characters (e.g., unencoded '/').
+  if (user) {
+    const encodedPassword = password ? encodeURIComponent(password) : '';
+    const connectionString =
+      host && database
+        ? `postgresql://${encodeURIComponent(user)}${encodedPassword ? `:${encodedPassword}` : ''}@${host}:${port}/${database}`
+        : undefined;
+
     pool = new Pool({
-      host,
+      connectionString,
+      host: host || undefined,
       port: port ? parseInt(port, 10) : 5432,
       user,
       password,
