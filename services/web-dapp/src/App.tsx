@@ -692,9 +692,9 @@ function SendFundsPage() {
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
       // Store keypair info AND transaction params in sessionStorage for callback
-      // Note: getSecretKey() returns a Uint8Array - we convert to Array for JSON serialization
+      // Use export() which returns a proper serializable format
       sessionStorage.setItem(ZKLOGIN_STORAGE_KEY, JSON.stringify({
-        secretKey: Array.from(eph.getSecretKey()), // Convert Uint8Array to Array for JSON
+        keypair: eph.export(), // Use export() for proper serialization
         maxEpoch: maxEp,
         randomness: rand.toString(),
         // Preserve transaction params for after OAuth
@@ -743,8 +743,16 @@ function SendFundsPage() {
         hasTxParams: !!data.txParams
       });
       
-      if (data.secretKey) {
-        const eph = Ed25519Keypair.fromSecretKey(new Uint8Array(data.secretKey));
+      // Restore ephemeral keypair - support both old (secretKey) and new (keypair) formats
+      if (data.keypair) {
+        // New format: use exported keypair
+        const eph = Ed25519Keypair.fromExportedKeypair(data.keypair);
+        setEphemeralKeypair(eph);
+      } else if (data.secretKey) {
+        // Old format: try to restore from secret key (first 32 bytes = seed)
+        const secretKeyArray = new Uint8Array(data.secretKey);
+        const seed = secretKeyArray.slice(0, 32); // Ed25519 seed is first 32 bytes
+        const eph = Ed25519Keypair.fromSecretKey(seed);
         setEphemeralKeypair(eph);
       }
       if (data.maxEpoch !== undefined) setMaxEpoch(data.maxEpoch);
