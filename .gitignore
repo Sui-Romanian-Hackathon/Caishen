@@ -9,7 +9,9 @@ services/*/node_modules
 services/*/dist
 # Web dApp build output (track authored assets, ignore generated artifacts only)
 services/web-dapp/out/*.map
+services/web-dapp/out/*
 
+web/*
 # SSL certificates (never commit private keys!)
 nginx/ssl/*.pem
 nginx/ssl/*.crt
