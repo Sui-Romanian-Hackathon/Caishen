@@ -70,7 +70,11 @@ export class SessionStore {
     session.updatedAt = new Date();
   }
 
-  async setWallet(userId: string, walletAddress: string): Promise<void> {
+  async setWallet(
+    userId: string,
+    walletAddress: string,
+    linkedVia: 'manual' | 'zklogin' | 'slush' | 'external' = 'manual'
+  ): Promise<void> {
     await this.init();
     
     const session = this.getOrCreate(userId);
@@ -78,7 +82,11 @@ export class SessionStore {
     session.updatedAt = new Date();
 
     // Persist to database
-    await linkWallet(userId, walletAddress, 'manual');
+    await linkWallet(
+      userId,
+      walletAddress,
+      linkedVia === 'zklogin' ? 'zklogin' : 'manual'
+    );
   }
 
   getHistory(userId: string): Array<{ role: 'user' | 'assistant'; text: string }> {

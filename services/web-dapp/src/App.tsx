@@ -40,6 +40,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseet
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
 // Hardcoded salt for all users (hackathon mode)
 const HARDCODED_SALT = '150862062947206198448536405856390800536';
+const ZKLOGIN_STORAGE_KEY = 'zklogin_eph';
 
 const { networkConfig } = createNetworkConfig({
   testnet: { url: getFullnodeUrl('testnet') },
@@ -467,7 +468,7 @@ function SendFundsPage() {
   // Form state - check sessionStorage first (for OAuth callback), then URL params
   const [form, setForm] = useState(() => {
     // First check if we have stored tx params from OAuth flow
-    const stored = sessionStorage.getItem('zklogin_eph');
+    const stored = sessionStorage.getItem(ZKLOGIN_STORAGE_KEY);
     if (stored) {
       try {
         const data = JSON.parse(stored);
@@ -496,7 +497,7 @@ function SendFundsPage() {
   const [error, setError] = useState<string | null>(null);
   const [senderParam, setSenderParam] = useState(() => {
     // First check sessionStorage (for OAuth callback)
-    const stored = sessionStorage.getItem('zklogin_eph');
+    const stored = sessionStorage.getItem(ZKLOGIN_STORAGE_KEY);
     if (stored) {
       try {
         const data = JSON.parse(stored);
@@ -515,7 +516,7 @@ function SendFundsPage() {
   // Auto-detect mode: if sender is provided, default to zklogin (user likely has zkLogin wallet)
   const [mode, setMode] = useState<'wallet' | 'zklogin'>(() => {
     // Check sessionStorage first (for OAuth callback)
-    const stored = sessionStorage.getItem('zklogin_eph');
+    const stored = sessionStorage.getItem(ZKLOGIN_STORAGE_KEY);
     if (stored) {
       try {
         const data = JSON.parse(stored);
@@ -685,7 +686,7 @@ function SendFundsPage() {
 
       // Store keypair info AND transaction params in sessionStorage for callback
       // Note: getSecretKey() returns a Uint8Array - we convert to Array for JSON serialization
-      sessionStorage.setItem('zklogin_eph', JSON.stringify({
+      sessionStorage.setItem(ZKLOGIN_STORAGE_KEY, JSON.stringify({
         secretKey: Array.from(eph.getSecretKey()), // Convert Uint8Array to Array for JSON
         maxEpoch: maxEp,
         randomness: rand.toString(),
@@ -714,43 +715,50 @@ function SendFundsPage() {
     }
   }, [suiClient]);
 
-  // Restore ephemeral key and transaction params from session storage on mount
+  // Restore ephemeral key and transaction params from session storage on mount / when JWT arrives
   useEffect(() => {
-    const stored = sessionStorage.getItem('zklogin_eph');
-    console.log('[zkLogin] Checking sessionStorage for ephemeral key, jwtToken present:', !!jwtToken, 'stored:', !!stored);
+    const stored = sessionStorage.getItem(ZKLOGIN_STORAGE_KEY);
+    console.log('[zkLogin] Checking sessionStorage for ephemeral key', {
+      hasJwt: !!jwtToken,
+      hasStored: !!stored
+    });
     
-    if (stored && jwtToken) {
-      try {
-        const data = JSON.parse(stored);
-        console.log('[zkLogin] Restoring from sessionStorage:', {
-          hasSecretKey: !!data.secretKey,
-          maxEpoch: data.maxEpoch,
-          hasRandomness: !!data.randomness,
-          hasTxParams: !!data.txParams
-        });
-        
-        // secretKey is stored as array of bytes, convert back to Uint8Array
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const data = JSON.parse(stored);
+      console.log('[zkLogin] Restoring from sessionStorage:', {
+        hasSecretKey: !!data.secretKey,
+        maxEpoch: data.maxEpoch,
+        hasRandomness: !!data.randomness,
+        hasTxParams: !!data.txParams
+      });
+      
+      if (data.secretKey) {
         const eph = Ed25519Keypair.fromSecretKey(new Uint8Array(data.secretKey));
         setEphemeralKeypair(eph);
-        setMaxEpoch(data.maxEpoch);
-        setRandomness(data.randomness);
-        
-        // Restore transaction params if present
-        if (data.txParams) {
-          console.log('[zkLogin] Restoring tx params:', data.txParams);
-          setForm({
-            recipient: data.txParams.recipient || '',
-            amount: data.txParams.amount || '',
-            memo: data.txParams.memo || ''
-          });
-        }
-        
-        // Clear after restore
-        sessionStorage.removeItem('zklogin_eph');
-        console.log('[zkLogin] Restored ephemeral key and cleared sessionStorage');
-      } catch (e) {
-        console.error('[zkLogin] Error restoring from sessionStorage:', e);
       }
+      if (data.maxEpoch !== undefined) setMaxEpoch(data.maxEpoch);
+      if (data.randomness) setRandomness(data.randomness);
+      
+      if (data.txParams) {
+        setForm({
+          recipient: data.txParams.recipient || '',
+          amount: data.txParams.amount || '',
+          memo: data.txParams.memo || ''
+        });
+      }
+      
+      if (jwtToken) {
+        sessionStorage.removeItem(ZKLOGIN_STORAGE_KEY);
+        console.log('[zkLogin] Restored ephemeral key and cleared sessionStorage');
+      } else {
+        console.log('[zkLogin] Keeping ephemeral data until JWT is available');
+      }
+    } catch (e) {
+      console.error('[zkLogin] Error restoring from sessionStorage:', e);
     }
   }, [jwtToken]);
 

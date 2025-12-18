@@ -101,26 +101,6 @@ services:
     mem_reservation: 256m
 
   # zkLogin Postgres (separate DB)
-  zklogin-db:
-    image: postgres:16-alpine
-    container_name: zklogin-db
-    environment:
-      - POSTGRES_USER=caishen
-      - POSTGRES_PASSWORD=copilot_secret
-      - POSTGRES_DB=caishen_wallet
-    volumes:
-      - zklogin_pgdata:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U caishen -d caishen_wallet']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - ai-copilot-network
-      - zklogin-net
-
   # zkLogin transaction-builder service
   zklogin-transaction-builder:
     build:
@@ -130,7 +110,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3003
-      - DATABASE_URL=${DATABASE_URL:-postgresql://caishen:copilot_secret@zklogin-db:5432/caishen_wallet}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://caishen:copilot_secret@postgres:5432/caishen_wallet}
       - ZKLOGIN_MASTER_SECRET=${ZKLOGIN_MASTER_SECRET}
       - ZKLOGIN_ENCRYPTION_KEY=${ZKLOGIN_ENCRYPTION_KEY}
       - GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID}}
@@ -145,12 +125,11 @@ services:
     ports:
       - '3003:3003'
     depends_on:
-      zklogin-db:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - ai-copilot-network
-      - zklogin-net
 
   # Mock prover
   # mock-prover:
@@ -184,11 +163,7 @@ volumes:
     driver: local
   bot_files:
     driver: local
-  zklogin_pgdata:
-    driver: local
 
 networks:
   ai-copilot-network:
-    driver: bridge
-  zklogin-net:
     driver: bridge

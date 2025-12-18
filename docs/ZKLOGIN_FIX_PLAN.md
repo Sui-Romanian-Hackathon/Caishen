@@ -63,6 +63,16 @@ The `LinkPage.tsx` derives the zkLogin address and sends it to the backend, but:
 
 ---
 
+### Infra Issue: Split Databases Causing Missing Data
+
+**Symptom**: wallet_links and zklogin_salts end up empty or mismatched between services.
+
+**Root Cause**: docker-compose defined two separate Postgres containers (`postgres` for the bot and `zklogin-db` for transaction-builder) with different volumes, so data was isolated.
+
+**Fix**: Consolidate all services on the single `postgres` service/volume. `zklogin-transaction-builder` now points to `postgres:5432` and the extra `zklogin-db` service/volume has been removed (also mirrored in `docker-compose.zklogin.yml`).
+
+---
+
 ## Fixes Already Applied
 
 ### In `services/web-dapp/src/App.tsx`:
@@ -82,6 +92,13 @@ The `LinkPage.tsx` derives the zkLogin address and sends it to the backend, but:
    ```typescript
    useEffect(() => { ... }, [jwtToken, salt]);
    ```
+
+### New fixes in this iteration
+
+- **Infra:** docker-compose now uses a single Postgres service; `zklogin-transaction-builder` points to `postgres:5432` and the duplicate `zklogin-db` container/volume was removed (also mirrored in `docker-compose.zklogin.yml`).
+- **Linking backend:** `/api/link/:token/wallet` persists zkLogin salts to `zklogin_salts` (provider `google`, key claim `sub`, derived address stored) using the same shared DB.
+- **Linking frontend:** zkLogin flow continues to send `zkLoginSalt` and `zkLoginSub` so the backend can store them (HARDCODED_SALT for now).
+- **Ephemeral key restore:** zkLogin send flow now restores `zklogin_eph` session data even before JWT is present, logs the state, and only clears storage after a successful restore to reduce “Ephemeral key not found” errors.
 
 ---
 

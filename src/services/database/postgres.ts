@@ -184,6 +184,67 @@ export async function linkWallet(
   );
 }
 
+/**
+ * Upsert zkLogin salt binding for a Telegram user.
+ */
+export async function upsertZkloginSalt(params: {
+  telegramId: string;
+  provider: string;
+  subject: string;
+  salt: string;
+  audience?: string;
+  derivedAddress?: string;
+  keyClaimName?: string;
+}): Promise<void> {
+  const audience =
+    params.audience ||
+    process.env.GOOGLE_CLIENT_ID ||
+    process.env.VITE_GOOGLE_CLIENT_ID ||
+    'unknown_audience';
+  const keyClaimName = params.keyClaimName || 'sub';
+
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL app.current_telegram_id = $1', [params.telegramId]);
+
+    await client.query(
+      `INSERT INTO users (telegram_id, last_seen_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (telegram_id) DO UPDATE SET last_seen_at = NOW()`,
+      [params.telegramId]
+    );
+
+    await client.query(
+      `INSERT INTO zklogin_salts (
+        telegram_id, provider, subject, audience, salt, derived_address, key_claim_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (provider, subject, audience) DO UPDATE SET
+        telegram_id = EXCLUDED.telegram_id,
+        salt = EXCLUDED.salt,
+        derived_address = EXCLUDED.derived_address,
+        key_claim_name = EXCLUDED.key_claim_name,
+        updated_at = NOW()`,
+      [
+        params.telegramId,
+        params.provider,
+        params.subject,
+        audience,
+        params.salt,
+        params.derivedAddress || null,
+        keyClaimName
+      ]
+    );
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export default {
   initDatabase,
   getPool,
@@ -196,4 +257,5 @@ export default {
   getUser,
   getUserWallet,
   linkWallet,
+  upsertZkloginSalt,
 };

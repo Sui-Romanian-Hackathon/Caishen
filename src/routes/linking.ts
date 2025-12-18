@@ -7,6 +7,7 @@ import {
 } from '../services/linking/linkingStore';
 import { verifyTelegramAuth, parseTelegramAuthData } from '../services/linking/telegramAuth';
 import { sessionStore } from '../services/session/sessionStore';
+import { upsertZkloginSalt } from '../services/database/postgres';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -63,7 +64,7 @@ router.get('/api/link/:token', rateLimiter, (req, res) => {
  * Connect a wallet to the linking session
  * Body: { walletAddress, walletType, zkLoginSalt?, zkLoginSub? }
  */
-router.post('/api/link/:token/wallet', rateLimiter, (req, res) => {
+router.post('/api/link/:token/wallet', rateLimiter, async (req, res) => {
   const { token } = req.params;
   const { walletAddress, walletType, zkLoginSalt, zkLoginSub } = req.body;
 
@@ -88,6 +89,32 @@ router.post('/api/link/:token/wallet', rateLimiter, (req, res) => {
   if (!['zklogin', 'slush', 'external'].includes(walletType)) {
     res.status(400).json({ error: 'Invalid wallet type' });
     return;
+  }
+
+  if (walletType === 'zklogin') {
+    if (!zkLoginSalt || !zkLoginSub) {
+      res.status(400).json({ error: 'zkLoginSalt and zkLoginSub are required for zklogin wallets' });
+      return;
+    }
+
+    try {
+      await upsertZkloginSalt({
+        telegramId: session.telegramId,
+        provider: 'google',
+        subject: String(zkLoginSub),
+        salt: String(zkLoginSalt),
+        audience: process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID,
+        derivedAddress: walletAddress,
+        keyClaimName: 'sub'
+      });
+    } catch (err) {
+      logger.error(
+        { err, token: token.slice(0, 8) + '...', telegramId: session.telegramId },
+        'Failed to persist zkLogin salt during linking'
+      );
+      res.status(500).json({ error: 'Failed to store zkLogin salt. Please try again.' });
+      return;
+    }
   }
 
   // Update session with wallet info
@@ -122,7 +149,7 @@ router.post('/api/link/:token/wallet', rateLimiter, (req, res) => {
  * Verify Telegram identity and complete the linking
  * Body: Telegram Login Widget auth data (id, first_name, username, auth_date, hash)
  */
-router.post('/api/link/:token/telegram-verify', rateLimiter, (req, res) => {
+router.post('/api/link/:token/telegram-verify', rateLimiter, async (req, res) => {
   const { token } = req.params;
   const authData = parseTelegramAuthData(req.body);
 
@@ -170,7 +197,11 @@ router.post('/api/link/:token/telegram-verify', rateLimiter, (req, res) => {
 
   // Update the session store with the linked wallet
   if (completed.walletAddress) {
-    sessionStore.setWallet(completed.telegramId, completed.walletAddress);
+    await sessionStore.setWallet(
+      completed.telegramId,
+      completed.walletAddress,
+      completed.walletType || 'manual'
+    );
   }
 
   logger.info({
