@@ -692,9 +692,11 @@ function SendFundsPage() {
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
       // Store keypair info AND transaction params in sessionStorage for callback
-      // Use export() which returns a proper serializable format
+      // Store the secret key bytes - getSecretKey() returns 64 bytes for Ed25519
+      const secretKeyBytes = eph.getSecretKey();
       sessionStorage.setItem(ZKLOGIN_STORAGE_KEY, JSON.stringify({
-        keypair: eph.export(), // Use export() for proper serialization
+        secretKey: Array.from(secretKeyBytes),
+        secretKeyLength: secretKeyBytes.length, // Store length for debugging
         maxEpoch: maxEp,
         randomness: rand.toString(),
         // Preserve transaction params for after OAuth
@@ -743,17 +745,20 @@ function SendFundsPage() {
         hasTxParams: !!data.txParams
       });
       
-      // Restore ephemeral keypair - support both old (secretKey) and new (keypair) formats
-      if (data.keypair) {
-        // New format: use exported keypair
-        const eph = Ed25519Keypair.fromExportedKeypair(data.keypair);
-        setEphemeralKeypair(eph);
-      } else if (data.secretKey) {
-        // Old format: try to restore from secret key (first 32 bytes = seed)
+      // Restore ephemeral keypair from stored secret key
+      if (data.secretKey) {
         const secretKeyArray = new Uint8Array(data.secretKey);
-        const seed = secretKeyArray.slice(0, 32); // Ed25519 seed is first 32 bytes
+        console.log('[zkLogin] Secret key length:', secretKeyArray.length);
+
+        // Ed25519Keypair.fromSecretKey expects 32-byte seed, not 64-byte full key
+        // If we have 64 bytes, take the first 32 (the seed)
+        const seed = secretKeyArray.length === 64
+          ? secretKeyArray.slice(0, 32)
+          : secretKeyArray;
+
         const eph = Ed25519Keypair.fromSecretKey(seed);
         setEphemeralKeypair(eph);
+        console.log('[zkLogin] Ephemeral keypair restored successfully');
       }
       if (data.maxEpoch !== undefined) setMaxEpoch(data.maxEpoch);
       if (data.randomness) setRandomness(data.randomness);

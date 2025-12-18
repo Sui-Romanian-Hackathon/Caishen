@@ -258,9 +258,8 @@ export function LinkPage() {
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
       // Store for callback - include full return path
-      // Use export() for proper keypair serialization
       sessionStorage.setItem('zklogin_link', JSON.stringify({
-        keypair: eph.export(),
+        secretKey: Array.from(eph.getSecretKey()),
         maxEpoch: maxEp,
         randomness: rand.toString(),
         token: token,
