@@ -44,9 +44,6 @@ export class SaltService {
     if (!request.jwt) {
       throw new ZkLoginError('jwt is required', 400);
     }
-    if (!request.telegramId) {
-      throw new ZkLoginError('telegramId is required', 400);
-    }
 
     const validation = await this.options.validator.validate(request.jwt);
     if (!validation.valid || !validation.claims) {
@@ -64,15 +61,19 @@ export class SaltService {
 
     const derivedAddress = jwtToAddress(request.jwt.trim(), salt);
 
-    const record = await this.options.storage.getOrCreate({
-      telegramId: request.telegramId,
+    const baseRecord = {
+      telegramId: request.telegramId ?? 'anonymous',
       provider: claims.iss,
       subject: claims.sub,
       audience: Array.isArray(claims.aud) ? claims.aud[0] : claims.aud,
       salt,
       derivedAddress,
       keyClaimName: this.keyClaimName
-    });
+    };
+
+    const record = request.telegramId
+      ? await this.options.storage.getOrCreate(baseRecord)
+      : baseRecord;
 
     this.options.logger?.info(
       {

@@ -8,6 +8,7 @@ import {
 import { verifyTelegramAuth, parseTelegramAuthData } from '../services/linking/telegramAuth';
 import { sessionStore } from '../services/session/sessionStore';
 import { upsertZkloginSalt } from '../services/database/postgres';
+import { requestSaltFromTxBuilder } from '../services/clients/zkloginService';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -57,6 +58,50 @@ router.get('/api/link/:token', rateLimiter, (req, res) => {
     walletAddress: session.walletAddress ? session.walletAddress.slice(0, 10) + '...' : null,
     walletType: session.walletType
   });
+});
+
+/**
+ * POST /api/link/:token/zklogin-salt
+ * Derive salt + address from JWT using backend salt service (no hardcoded salt)
+ * Body: { jwt }
+ */
+router.post('/api/link/:token/zklogin-salt', rateLimiter, async (req, res) => {
+  const { token } = req.params;
+  const { jwt } = req.body ?? {};
+
+  if (!jwt || typeof jwt !== 'string') {
+    res.status(400).json({ error: 'jwt is required' });
+    return;
+  }
+
+  const session = getLinkingSession(token);
+  if (!session) {
+    res.status(404).json({ error: 'Linking session not found or expired' });
+    return;
+  }
+
+  try {
+    const saltResponse = await requestSaltFromTxBuilder({
+      jwt,
+      telegramId: session.telegramId
+    });
+
+    // Cache salt/sub/address on the session for later wallet connect step
+    updateLinkingSession(token, {
+      zkLoginSalt: saltResponse.salt,
+      zkLoginSub: saltResponse.subject,
+      walletAddress: saltResponse.derivedAddress,
+      walletType: 'zklogin'
+    });
+
+    res.json(saltResponse);
+  } catch (err) {
+    logger.error(
+      { err, token: token.slice(0, 8) + '...', telegramId: session.telegramId },
+      'Failed to derive zkLogin salt via backend'
+    );
+    res.status(500).json({ error: 'Failed to derive salt from backend service' });
+  }
 });
 
 /**

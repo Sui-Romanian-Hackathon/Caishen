@@ -2,7 +2,11 @@ import axios from 'axios';
 import logger from '../../utils/logger';
 import { config } from '../../config/env';
 
-const client = axios.create({ baseURL: config.USER_SERVICE_URL, timeout: 5000 });
+const userServiceClient = axios.create({ baseURL: config.USER_SERVICE_URL, timeout: 5000 });
+const txServiceClient = axios.create({
+  baseURL: config.TX_SERVICE_URL,
+  timeout: 5000
+});
 const proverClient = axios.create({
   baseURL:
     process.env.PROVER_URL || process.env.ZKLOGIN_PROVER_URL || 'https://prover-dev.mystenlabs.com/v1',
@@ -26,7 +30,7 @@ export async function getOrCreateSalt(params: SaltRequest) {
   }
 
   try {
-    const res = await client.post('/api/v1/zklogin/salt', params);
+    const res = await userServiceClient.post('/api/v1/zklogin/salt', params);
     return res.data as { provider: string; subject: string; salt: string; created_at: string };
   } catch (err) {
     logger.warn(
@@ -50,6 +54,22 @@ export async function getOrCreateSalt(params: SaltRequest) {
       logger.error({ err: fallbackErr }, 'Failed to fetch salt from Mysten salt service');
       return null;
     }
+  }
+}
+
+export async function requestSaltFromTxBuilder(params: { jwt: string; telegramId?: string }) {
+  try {
+    const res = await txServiceClient.post('/api/v1/zklogin/salt', params);
+    return res.data as {
+      salt: string;
+      provider: string;
+      subject: string;
+      derivedAddress: string;
+      keyClaimName: string;
+    };
+  } catch (err) {
+    logger.error({ err }, 'Failed to fetch salt from transaction-builder');
+    throw err;
   }
 }
 

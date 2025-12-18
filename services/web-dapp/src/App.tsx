@@ -38,8 +38,8 @@ const PROVER_URL = 'https://prover-dev.mystenlabs.com/v1';
 const SUI_NETWORK = import.meta.env.VITE_SUI_NETWORK || 'testnet';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
-// Hardcoded salt for all users (hackathon mode)
-const HARDCODED_SALT = '150862062947206198448536405856390800536';
+const SALT_SERVICE_URL =
+  import.meta.env.VITE_ZKLOGIN_SALT_SERVICE_URL || `${API_BASE_URL}/api/v1/zklogin/salt`;
 const ZKLOGIN_STORAGE_KEY = 'zklogin_eph';
 
 const { networkConfig } = createNetworkConfig({
@@ -230,12 +230,18 @@ function CreateWalletPage() {
         }
         setZkSub(sub);
 
-        // Use hardcoded salt (hackathon mode - same salt for all users)
-        const saltBigInt = BigInt(HARDCODED_SALT);
-        setZkSalt(HARDCODED_SALT);
+        const saltRes = await fetchSaltFromService(jwt);
+        if (!saltRes?.salt) {
+          throw new Error('Salt service did not return a salt.');
+        }
 
-        // Derive deterministic Sui address
-        const address = jwtToAddress(jwt, saltBigInt);
+        setZkSalt(String(saltRes.salt));
+
+        // Derive deterministic Sui address using backend salt
+        const address =
+          saltRes.derivedAddress && typeof saltRes.derivedAddress === 'string'
+            ? saltRes.derivedAddress
+            : jwtToAddress(jwt, BigInt(saltRes.salt));
         setZkAddress(address);
 
         setStatus('Wallet created! You can now save or fund this address.');
@@ -464,6 +470,7 @@ function SendFundsPage() {
   const [pendingTxLoading, setPendingTxLoading] = useState(false);
   const [pendingTxError, setPendingTxError] = useState<string | null>(null);
   const [pendingTxExpiry, setPendingTxExpiry] = useState<number | null>(null);
+  const [pendingTelegramId, setPendingTelegramId] = useState<string | null>(null);
 
   // Form state - check sessionStorage first (for OAuth callback), then URL params
   const [form, setForm] = useState(() => {
@@ -600,6 +607,7 @@ function SendFundsPage() {
         if (data.salt) setSalt(data.salt);
         if (data.sender) setSenderParam(data.sender);
         if (data.expiresAt) setPendingTxExpiry(data.expiresAt);
+        if (data.telegramId) setPendingTelegramId(String(data.telegramId));
 
         console.log('[pendingTx] Loaded from API:', {
           recipient: data.recipient,
@@ -626,13 +634,12 @@ function SendFundsPage() {
 
   // Derive zkLogin address when JWT or salt changes
   useEffect(() => {
-    if (jwtToken) {
+    if (jwtToken && salt) {
       try {
-        const effectiveSalt = salt || HARDCODED_SALT;
-        const { saltBigInt } = normalizeSalt(effectiveSalt);
+        const { saltBigInt } = normalizeSalt(salt);
         const addr = jwtToAddress(jwtToken, saltBigInt);
         setZkAddress(addr);
-        console.log('[zkLogin] Derived address with salt:', { salt: effectiveSalt, address: addr });
+        console.log('[zkLogin] Derived address with salt:', { salt, address: addr });
       } catch (err) {
         console.error('[zkLogin] Failed to derive address:', err);
         setZkAddress(null);
@@ -762,6 +769,30 @@ function SendFundsPage() {
     }
   }, [jwtToken]);
 
+  // Fetch salt from backend once we have a JWT (no hardcoded fallback)
+  useEffect(() => {
+    if (!jwtToken || salt) return;
+
+    const targetTelegramId = pendingTelegramId || undefined;
+    setZkStatus((prev) => prev ?? 'Fetching zkLogin salt from backend...');
+
+    fetchSaltFromService(jwtToken, targetTelegramId)
+      .then((resp) => {
+        if (resp?.salt) {
+          setSalt(String(resp.salt));
+        }
+        if (resp?.derivedAddress) {
+          setZkAddress(resp.derivedAddress);
+        }
+        setZkStatus((prev) => (prev === 'Fetching zkLogin salt from backend...' ? null : prev));
+      })
+      .catch((err) => {
+        console.error('[zkLogin] Failed to fetch salt', err);
+        setZkError(err instanceof Error ? err.message : 'Failed to fetch salt from backend');
+        setZkStatus(null);
+      });
+  }, [jwtToken, pendingTelegramId, salt]);
+
   // Clean URL - remove all sensitive params (transaction details now come from API)
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -870,15 +901,18 @@ function SendFundsPage() {
       console.log('[zkLogin] aud:', aud);  
       console.log('[zkLogin] iss:', iss);
 
-      // Use salt from pending tx API if available, otherwise fallback to hardcoded salt
-      const rawSaltValue = salt || HARDCODED_SALT;
-      const { saltBigInt, saltString: saltValue } = normalizeSalt(rawSaltValue);
-      if (!salt) setSalt(saltValue);
+      if (!salt) {
+        setZkError('Salt not loaded from backend. Please sign in again to refresh the session.');
+        setZkStatus(null);
+        return;
+      }
+
+      const { saltBigInt, saltString: saltValue } = normalizeSalt(salt);
       console.log('[zkLogin] ===== SALT =====');
-      console.log('[zkLogin] rawSaltValue:', rawSaltValue);
+      console.log('[zkLogin] rawSaltValue:', salt);
       console.log('[zkLogin] saltValue (normalized):', saltValue);
       console.log('[zkLogin] saltBigInt:', saltBigInt.toString());
-      console.log('[zkLogin] Using salt from:', salt ? 'pending tx API' : 'HARDCODED fallback');
+      console.log('[zkLogin] Using salt from backend service');
 
       // 2) Derive zkLogin address
       const zkAddr = jwtToAddress(jwtToken, saltBigInt);
@@ -1364,28 +1398,32 @@ function decodeJwt(token: string): { sub?: string; aud?: string } {
   }
 }
 
-async function fetchSaltWithFallback(jwt: string, url: string, fallbackSalt?: string): Promise<{ salt: string; usedFallback: boolean }> {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // Mysten salt API expects `token`; keep `jwt` for compatibility with other services.
-      body: JSON.stringify({ token: jwt, jwt })
-    });
-    if (!res.ok) {
-      throw new Error(`Salt service error ${res.status}`);
-    }
-    const data = await res.json();
-    const salt = data?.salt;
-    if (!salt) throw new Error('Salt not returned');
-    return { salt: String(salt), usedFallback: false };
-  } catch (err) {
-    if (fallbackSalt) {
-      console.warn('Salt fetch failed, using placeholder salt from env.', err);
-      return { salt: fallbackSalt, usedFallback: true };
-    }
-    throw err;
+async function fetchSaltFromService(jwt: string, telegramId?: string): Promise<{
+  salt: string;
+  derivedAddress?: string;
+  provider?: string;
+  subject?: string;
+  keyClaimName?: string;
+}> {
+  const res = await fetch(SALT_SERVICE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jwt,
+      telegramId
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Salt service error ${res.status}`);
   }
+
+  const data = await res.json();
+  if (!data?.salt) {
+    throw new Error('Salt service did not return a salt');
+  }
+  return data;
 }
 
 /**

@@ -2,7 +2,7 @@ import type { JWK } from 'jose';
 
 export interface SaltRequest {
   jwt: string;
-  telegramId: string;
+  telegramId?: string;
   provider?: string;
 }
 

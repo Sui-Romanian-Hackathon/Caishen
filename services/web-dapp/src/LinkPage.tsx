@@ -19,8 +19,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseet
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const TELEGRAM_BOT_USERNAME =
   import.meta.env.VITE_TELEGRAM_BOT_USERNAME || 'Caishen_Sui_Bot';
-// Hardcoded salt for all users (hackathon mode)
-const HARDCODED_SALT = '150862062947206198448536405856390800536';
 
 interface LinkingSession {
   token: string;
@@ -301,24 +299,43 @@ export function LinkPage() {
       sessionStorage.removeItem('zklogin_link');
 
       // Decode JWT to get sub
-      const { sub, aud } = decodeJwt(jwt);
+      const { sub } = decodeJwt(jwt);
       if (!sub) {
         throw new Error('Invalid JWT - missing subject');
       }
       setZkSub(sub);
 
-      // Use hardcoded salt (hackathon mode - same salt for all users)
-      const saltBigInt = BigInt(HARDCODED_SALT);
-      setZkSalt(HARDCODED_SALT);
+      // Ask backend to derive/store salt + address (no hardcoded salt)
+      if (!token) {
+        throw new Error('Link token missing. Please restart from Telegram.');
+      }
 
-      // Derive address
-      const address = jwtToAddress(jwt, saltBigInt);
-      setZkAddress(address);
+      const saltRes = await fetch(`${API_BASE_URL}/api/link/${token}/zklogin-salt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jwt })
+      });
+
+      if (!saltRes.ok) {
+        const text = await saltRes.text();
+        throw new Error(`Failed to fetch salt from backend: ${text || saltRes.status}`);
+      }
+
+      const saltData = await saltRes.json();
+      const saltValue = saltData?.salt;
+      const derivedAddress =
+        saltData?.derivedAddress && typeof saltData.derivedAddress === 'string'
+          ? saltData.derivedAddress
+          : jwtToAddress(jwt, BigInt(saltValue));
+
+      setZkSalt(saltValue);
+      setZkSub(saltData?.subject || sub);
+      setZkAddress(derivedAddress);
 
       setStatus('Wallet ready! Now connecting...');
 
       // Connect the zkLogin wallet
-      await connectWallet(address, 'zklogin');
+      await connectWallet(derivedAddress, 'zklogin');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'zkLogin failed');
       setStep('error');
@@ -614,5 +631,3 @@ function decodeJwt(token: string): { sub?: string; aud?: string } {
     return {};
   }
 }
-
-// Salt functions removed - using HARDCODED_SALT for hackathon

@@ -12,7 +12,7 @@
 - `zklogin_salts` table is **empty** - salt was never persisted
 
 **Root Cause**:
-The wallet was linked using a salt (possibly from Mysten's salt service or a different value) that was never stored. Now the web-dapp uses `HARDCODED_SALT = '150862062947206198448536405856390800536'` which derives a different address.
+The wallet was linked using a salt (possibly from Mysten's salt service or a different value) that was never stored. The web-dapp previously used a hardcoded salt (`150862062947206198448536405856390800536`), producing a different address. Salt is now derived and persisted server-side.
 
 **Affected Files**:
 - `services/web-dapp/src/LinkPage.tsx` - wallet linking flow
@@ -77,10 +77,9 @@ The `LinkPage.tsx` derives the zkLogin address and sends it to the backend, but:
 
 ### In `services/web-dapp/src/App.tsx`:
 
-1. **Salt usage in `onSubmitZk`** - Now uses salt from pending tx API with fallback:
+1. **Salt usage in `onSubmitZk`** - Now requires backend-provided salt (pending tx API or direct salt service) with no hardcoded fallback:
    ```typescript
-   const rawSaltValue = salt || HARDCODED_SALT;
-   const { saltBigInt, saltString: saltValue } = normalizeSalt(rawSaltValue);
+   const { saltBigInt, saltString: saltValue } = normalizeSalt(salt);
    ```
 
 2. **Sender param consumption** - Now sets `senderParam` from API response:
@@ -88,7 +87,7 @@ The `LinkPage.tsx` derives the zkLogin address and sends it to the backend, but:
    if (data.sender) setSenderParam(data.sender);
    ```
 
-3. **Address derivation useEffect** - Now re-derives when salt changes:
+3. **Address derivation useEffect** - Now re-derives when salt changes (no default salt):
    ```typescript
    useEffect(() => { ... }, [jwtToken, salt]);
    ```
@@ -96,8 +95,8 @@ The `LinkPage.tsx` derives the zkLogin address and sends it to the backend, but:
 ### New fixes in this iteration
 
 - **Infra:** docker-compose now uses a single Postgres service; `zklogin-transaction-builder` points to `postgres:5432` and the duplicate `zklogin-db` container/volume was removed (also mirrored in `docker-compose.zklogin.yml`).
-- **Linking backend:** `/api/link/:token/wallet` persists zkLogin salts to `zklogin_salts` (provider `google`, key claim `sub`, derived address stored) using the same shared DB.
-- **Linking frontend:** zkLogin flow continues to send `zkLoginSalt` and `zkLoginSub` so the backend can store them (HARDCODED_SALT for now).
+- **Linking flow:** `/api/link/:token/zklogin-salt` proxies to transaction-builder `/api/v1/zklogin/salt` (JWT-verified, derived via `ZKLOGIN_MASTER_SECRET`, encrypted with `ZKLOGIN_ENCRYPTION_KEY`) and returns salt + derived address; link persists `zkLoginSalt/zkLoginSub` without any hardcoded fallback.
+- **Frontend:** zkLogin callback (link/create/send) fetches salt from backend salt service (`VITE_ZKLOGIN_SALT_SERVICE_URL`) once JWT is present; no HARDCODED_SALT usage. Pending-tx API now returns `telegramId` to provide tenant context to the salt service.
 - **Ephemeral key restore:** zkLogin send flow now restores `zklogin_eph` session data even before JWT is present, logs the state, and only clears storage after a successful restore to reduce “Ephemeral key not found” errors.
 
 ---
@@ -108,34 +107,7 @@ The `LinkPage.tsx` derives the zkLogin address and sends it to the backend, but:
 
 **Goal**: When a user links via zkLogin, store the salt in `zklogin_salts` table.
 
-**Changes Required**:
-
-1. **`LinkPage.tsx`**: Send salt to backend during wallet connection
-   ```typescript
-   // In connectWallet function, include salt:
-   await fetch(`${API_BASE_URL}/api/link/${token}/wallet`, {
-     method: 'POST',
-     body: JSON.stringify({
-       walletAddress: address,
-       walletType: 'zklogin',
-       zkLoginSalt: HARDCODED_SALT,  // or the salt used
-       zkLoginSub: sub
-     })
-   });
-   ```
-
-2. **Backend linking endpoint**: Store salt in `zklogin_salts` table
-   ```typescript
-   // In routes/linking.ts, after storing wallet_link:
-   if (walletType === 'zklogin' && zkLoginSalt && zkLoginSub) {
-     await storeSalt({
-       telegramId,
-       provider: 'google',
-       subject: zkLoginSub,
-       salt: zkLoginSalt
-     });
-   }
-   ```
+**Status**: Implemented. `LinkPage.tsx` calls `/api/link/:token/zklogin-salt`, which proxies to transaction-builder `/api/v1/zklogin/salt` (JWT-verified, HMAC-derived, encrypted storage). The backend caches `zkLoginSalt/zkLoginSub/derivedAddress` on the session and persists during wallet connect. No hardcoded salt is used.
 
 ### Priority 2: Fix Ephemeral Key Restoration
 
@@ -195,7 +167,7 @@ useEffect(() => {
 - Con: Different from what frontend might use
 - Implementation: Ensure frontend fetches salt from backend API
 
-**Recommendation**: For hackathon, stick with Option A (HARDCODED_SALT) but ensure it's persisted.
+**Recommendation**: Use server-derived deterministic salt (transaction-builder `/api/v1/zklogin/salt`), no hardcoded fallback. Store encrypted salt in `zklogin_salts` with master secret + encryption key.
 
 ---
 
@@ -211,8 +183,8 @@ DELETE FROM wallet_links WHERE telegram_id = '1123891263';
 1. User runs `/start` in Telegram bot
 2. Clicks link to web-dapp
 3. Signs in with Google
-4. Wallet gets linked with HARDCODED_SALT
-5. Address is stored consistently
+4. Backend derives salt via `/api/link/:token/zklogin-salt` → transaction-builder `/api/v1/zklogin/salt` (verified JWT, master secret, encrypted storage)
+5. Wallet address is stored consistently with derived salt (no hardcoded fallback)
 
 ### Step 3: Verify Fix
 1. Create a send transaction from bot
@@ -226,10 +198,10 @@ DELETE FROM wallet_links WHERE telegram_id = '1123891263';
 
 ## Testing Checklist
 
-- [ ] Wallet linking stores correct address (derived with HARDCODED_SALT)
+- [ ] Wallet linking stores correct address (derived with backend salt)
 - [ ] Salt is persisted in `zklogin_salts` table
-- [ ] Pending tx API returns correct `sender` and `salt`
-- [ ] Frontend uses salt from API (with HARDCODED_SALT fallback)
+- [ ] Pending tx API returns correct `sender`, `salt`, and `telegramId`
+- [ ] Frontend uses salt from backend API (no hardcoded fallback)
 - [ ] Ephemeral key survives OAuth redirect
 - [ ] Derived address matches stored address
 - [ ] Transaction signs and executes successfully

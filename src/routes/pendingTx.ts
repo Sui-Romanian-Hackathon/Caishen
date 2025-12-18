@@ -80,7 +80,7 @@ router.get('/api/pending-tx/:id', rateLimiter, (req, res) => {
     mode: tx.mode,
     salt: tx.salt,
     expiresAt: tx.expiresAt,
-    // Don't expose userId for privacy
+    telegramId: tx.userId // Needed so frontend can request zkLogin salt with correct tenant
   });
 });
 

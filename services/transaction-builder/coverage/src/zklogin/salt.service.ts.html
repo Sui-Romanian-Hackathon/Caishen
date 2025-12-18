@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">95.83% </span>
+                <span class="strong">96.9% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>92/96</span>
+                <span class='fraction'>94/97</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">64.28% </span>
+                <span class="strong">57.14% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>9/14</span>
+                <span class='fraction'>8/14</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">95.83% </span>
+                <span class="strong">96.9% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>92/96</span>
+                <span class='fraction'>94/97</span>
             </div>
         
             
@@ -159,7 +159,8 @@
 <a name='L94'></a><a href='#L94'>94</a>
 <a name='L95'></a><a href='#L95'>95</a>
 <a name='L96'></a><a href='#L96'>96</a>
-<a name='L97'></a><a href='#L97'>97</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -205,9 +206,6 @@
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">7x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">7x</span>
@@ -226,15 +224,19 @@
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
-<span class="cline-any cline-yes">6x</span>
-<span class="cline-any cline-yes">6x</span>
-<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-yes">7x</span>
@@ -301,9 +303,6 @@ export class SaltService {
     if (!request.jwt) {
       throw new ZkLoginError('jwt is required', 400);
     }
-    if (!request.telegramId) <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
-<span class="cstat-no" title="statement not covered" >      throw new ZkLoginError('telegramId is required', 400);</span>
-<span class="cstat-no" title="statement not covered" >    }</span>
 &nbsp;
     const validation = await this.options.validator.validate(request.jwt);
     if (!validation.valid || !validation.claims) <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
@@ -321,15 +320,19 @@ export class SaltService {
 &nbsp;
     const derivedAddress = jwtToAddress(request.jwt.trim(), salt);
 &nbsp;
-    const record = await this.options.storage.getOrCreate({
-      telegramId: request.telegramId,
+    const baseRecord = {
+      telegramId: request.<span class="branch-0 cbranch-no" title="branch not covered" >telegramId ?? 'anonymous',</span>
       provider: claims.iss,
       subject: claims.sub,
       audience: Array.isArray(claims.aud<span class="branch-0 cbranch-no" title="branch not covered" >) ? claims.aud[0] : c</span>laims.aud,
       salt,
       derivedAddress,
       keyClaimName: this.keyClaimName
-    });
+    };
+&nbsp;
+    const record = request.telegramId
+      ? await this.options.storage.getOrCreate(baseRecord<span class="branch-0 cbranch-no" title="branch not covered" >)</span>
+<span class="cstat-no" title="statement not covered" >      : baseRecord;</span>
 &nbsp;
     this.options.<span class="branch-0 cbranch-no" title="branch not covered" >logger?.info(</span>
       {
@@ -358,7 +361,7 @@ export class SaltService {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-12-17T15:27:07.747Z
+                at 2025-12-18T12:53:38.124Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
