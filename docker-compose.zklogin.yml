@@ -27,7 +27,12 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3003
-      - DATABASE_URL=${DATABASE_URL:-postgresql://caishen:copilot_secret@postgres:5432/caishen_wallet}
+      # Use individual POSTGRES_* vars to avoid URL-encoding issues with special chars in passwords
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-caishen}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-copilot_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-caishen_wallet}
       - ZKLOGIN_MASTER_SECRET=${ZKLOGIN_MASTER_SECRET}
       - ZKLOGIN_ENCRYPTION_KEY=${ZKLOGIN_ENCRYPTION_KEY}
       - GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID}}
