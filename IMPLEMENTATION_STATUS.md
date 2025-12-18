@@ -33,8 +33,17 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │   Telegram      │────▶│  Python Bot      │────▶│  PostgreSQL     │
-│   Users         │◀────│  (aiogram)       │◀────│  Database       │
+│   Users         │◀────│  (aiogram:3001)  │◀────│  Database       │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
+                               │                        ▲
+                               │ /api/link/*            │
+                               ▼                        │
+                        ┌──────────────────┐           │
+                        │  transaction-    │───────────┘
+                        │  builder (:3003) │
+                        │  • zkLogin salt  │
+                        │  • JWT validation│
+                        └──────────────────┘
                                │
                                │ Sui RPC
                                ▼
@@ -42,18 +51,19 @@ This document provides a comprehensive checklist for agentic implementers. Each 
                         │  Sui Blockchain  │
                         │  (testnet)       │
                         └──────────────────┘
-                               │
+                               ▲
                                │ OAuth + zkLogin
-                               ▼
+                               │
                         ┌──────────────────┐
-                        │  Web dApp        │
+                        │  Web dApp (:5173)│
                         │  (wallet linking)│
                         └──────────────────┘
 ```
 
 ### Key Components:
-- **Python Bot** (`/bot`): aiogram-based Telegram bot with Gemini AI
-- **PostgreSQL**: User sessions, wallet links, contacts, linking sessions
+- **Python Bot** (`/bot`): aiogram-based Telegram bot with Gemini AI, serves `/api/link/*` endpoints
+- **transaction-builder** (`/services/transaction-builder`): Node.js service for zkLogin salt derivation, JWT validation
+- **PostgreSQL**: User sessions, wallet links, contacts, linking sessions, zklogin_salts
 - **Web dApp** (`/services/web-dapp`): React app for zkLogin and wallet connection
 - **Gemini AI**: Natural language processing + voice transcription
 
@@ -287,15 +297,20 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 **User Flow:**
 ```
 1. User presses /start in Telegram
-2. Bot creates linking session, returns: caishen.iseethereaper.com/link/@username?token=XYZ
+2. Bot creates linking session (15-min TTL), returns: caishen.iseethereaper.com/link/@username?token=XYZ
 3. User clicks → Web-dapp shows wallet options
-4. User creates zkLogin wallet (Google) OR connects Slush
-5. User clicks Telegram Login Widget to verify identity
-6. Server verifies HMAC hash AND matches Telegram ID to token
-7. Wallet linked to Telegram account ✅
+4. User clicks "zkLogin" → stores ephemeral key + token in sessionStorage
+5. Google OAuth redirect → user signs in
+6. OAuth callback to /link#id_token=... → token retrieved from sessionStorage
+7. Web-dapp calls POST /api/link/{token}/zklogin-salt with JWT
+8. Bot proxies to transaction-builder /api/v1/zklogin/salt
+9. transaction-builder validates JWT, derives salt from master secret, returns salt + address
+10. Web-dapp derives zkLogin address, calls /api/link/{token}/wallet
+11. User clicks Telegram Login Widget to verify identity
+12. Server verifies HMAC hash AND matches Telegram ID to token
+13. Wallet linked to Telegram account ✅
 
-> Latest: Linking sessions, wallet type (zkLogin/Slush/external), and zkLogin salt/sub are now persisted in Postgres and exposed via the bot’s aiohttp API (`/api/link/:token`, `/api/link/:token/wallet`, `/api/link/:token/complete`). The web dapp falls back to a local session if the API is unreachable, so users can still link. Telegram reply/edit paths are hardened against “chat not found” errors.
-> Telegram verification now enforces the Login Widget HMAC, matches the initiating Telegram ID, and sends a confirmation DM after linking.
+> Latest: Linking sessions, wallet type (zkLogin/Slush/external), and zkLogin salt/sub are now persisted in Postgres and exposed via the bot's aiohttp API (`/api/link/:token`, `/api/link/:token/wallet`, `/api/link/:token/zklogin-salt`, `/api/link/:token/complete`). Salt derivation uses HMAC from ZKLOGIN_MASTER_SECRET for deterministic addresses.
 ```
 
 ### 3.2 zkLogin Implementation (Using External Mysten Labs APIs)
@@ -306,11 +321,12 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | Randomness generation | `[x]` | Crypto | 128-bit random value |
 | Nonce generation | `[x]` | Ephemeral keys | Valid nonce created |
 | OAuth URL construction | `[x]` | Nonce | Redirect URL works |
-| OAuth redirect preserves linking path | `[x]` | Google OAuth | Redirect returns to specific /link/<handle>?token=... |
+| OAuth redirect preserves linking path | `[x]` | Google OAuth | Token stored in sessionStorage before OAuth |
 | Google OAuth integration | `[x]` | OAuth URL | JWT returned via hash |
 | OAuth error handling | `[x]` | OAuth URL | Hash errors parsed and shown to user |
 | JWT decoding & validation | `[x]` | OAuth | Claims extracted (sub, aud) |
-| External salt service call | `[x]` | salt.api.mystenlabs.com | Salt retrieved |
+| **Backend salt service** | `[x]` | transaction-builder | Bot proxies to `/api/v1/zklogin/salt` |
+| **Salt endpoint in Python bot** | `[x]` | aiohttp | `/api/link/{token}/zklogin-salt` |
 | External prover call (dev) | `[~]` | prover-dev.mystenlabs.com | Used for tx signing |
 | External prover call (prod) | `[ ]` | prover.mystenlabs.com | Mainnet deployment |
 | Proof caching until expiry | `[ ]` | Redis | Avoids re-proving |
@@ -322,7 +338,7 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | Apple OAuth | `[ ]` | OAuth flow | Phase 2 provider |
 | Twitch OAuth | `[S]` | OAuth flow | Gaming audience |
 
-> **Note:** Using Mysten Labs hosted APIs instead of local zklogin-service to save ~200MB RAM.
+> **Note:** Using local transaction-builder for salt derivation (HMAC from master secret) instead of Mysten Labs salt service. This provides deterministic salts and encrypted storage.
 
 ### 3.3 External Wallet Integration
 

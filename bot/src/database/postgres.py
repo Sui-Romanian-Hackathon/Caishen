@@ -108,6 +108,35 @@ async def _create_tables():
             ON conversation_history(telegram_id, created_at DESC)
         """)
 
+        # zkLogin salts table (used by transaction-builder for salt derivation)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS zklogin_salts (
+                id SERIAL PRIMARY KEY,
+                telegram_id VARCHAR(64) NOT NULL,
+                provider TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                audience TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                salt_encrypted BYTEA,
+                encryption_iv BYTEA,
+                derived_address TEXT,
+                key_claim_name TEXT NOT NULL DEFAULT 'sub',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE (provider, subject, audience)
+            )
+        """)
+
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_zklogin_salts_telegram
+            ON zklogin_salts(telegram_id)
+        """)
+
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_zklogin_salts_address
+            ON zklogin_salts(derived_address)
+        """)
+
         logger.info("Database tables verified/created")
 
 

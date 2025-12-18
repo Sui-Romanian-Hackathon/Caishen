@@ -152,10 +152,21 @@ The `db.ts` in transaction-builder already handles `POSTGRES_*` variables by URL
 
 **Flow After Fix:**
 1. Web-dapp calls `POST /api/link/{token}/zklogin-salt` with `{ jwt }`
-2. Python bot validates token, proxies to transaction-builder
+2. Python bot validates token, proxies to transaction-builder with `telegramId`
 3. Transaction-builder derives salt from JWT using `ZKLOGIN_MASTER_SECRET`
-4. Returns `{ salt, provider, subject, derivedAddress, keyClaimName }` to web-dapp
-5. Web-dapp uses returned salt + address for wallet linking
+4. Transaction-builder saves salt to `zklogin_salts` table (encrypted)
+5. Returns `{ salt, provider, subject, derivedAddress, keyClaimName }` to web-dapp
+6. Web-dapp uses returned salt + address for wallet linking
+
+#### Issue: `zklogin_salts` table not created
+
+**Root Cause:** The Python bot's `_create_tables()` didn't create the `zklogin_salts` table, and the database init script only runs on first container creation.
+
+**Fix Applied:**
+1. `bot/src/database/postgres.py:111-138` - Added `zklogin_salts` table creation
+2. `services/transaction-builder/src/db.ts:8-63` - Added schema creation including `users` and `zklogin_salts` tables
+
+Both services now create the required tables on startup if they don't exist.
 
 ---
 

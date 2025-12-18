@@ -7,6 +7,59 @@ let schemaReady: Promise<void> | null = null;
 
 async function ensureSchema(db: pg.Pool) {
   await db.query('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
+
+  // Ensure users table exists (needed for zklogin_salts foreign key or standalone use)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      telegram_id VARCHAR(64) PRIMARY KEY,
+      username VARCHAR(255),
+      first_name VARCHAR(255),
+      first_seen_at TIMESTAMP DEFAULT NOW(),
+      last_seen_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // zkLogin salts table for salt derivation and storage
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS zklogin_salts (
+      id SERIAL PRIMARY KEY,
+      telegram_id VARCHAR(64) NOT NULL,
+      provider TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      audience TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      salt_encrypted BYTEA,
+      encryption_iv BYTEA,
+      derived_address TEXT,
+      key_claim_name TEXT NOT NULL DEFAULT 'sub',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (provider, subject, audience)
+    )
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_zklogin_salts_telegram
+    ON zklogin_salts(telegram_id)
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_zklogin_salts_address
+    ON zklogin_salts(derived_address)
+  `);
+
+  // Transactions table for logging
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id SERIAL PRIMARY KEY,
+      telegram_id VARCHAR(64),
+      tx_bytes TEXT,
+      status VARCHAR(32) DEFAULT 'pending',
+      digest VARCHAR(66),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 }
 
 export function initDb() {
