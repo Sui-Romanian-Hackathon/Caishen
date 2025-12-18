@@ -97,7 +97,65 @@ The `LinkPage.tsx` derives the zkLogin address and sends it to the backend, but:
 - **Infra:** docker-compose now uses a single Postgres service; `zklogin-transaction-builder` points to `postgres:5432` and the duplicate `zklogin-db` container/volume was removed (also mirrored in `docker-compose.zklogin.yml`).
 - **Linking flow:** `/api/link/:token/zklogin-salt` proxies to transaction-builder `/api/v1/zklogin/salt` (JWT-verified, derived via `ZKLOGIN_MASTER_SECRET`, encrypted with `ZKLOGIN_ENCRYPTION_KEY`) and returns salt + derived address; link persists `zkLoginSalt/zkLoginSub` without any hardcoded fallback.
 - **Frontend:** zkLogin callback (link/create/send) fetches salt from backend salt service (`VITE_ZKLOGIN_SALT_SERVICE_URL`) once JWT is present; no HARDCODED_SALT usage. Pending-tx API now returns `telegramId` to provide tenant context to the salt service.
-- **Ephemeral key restore:** zkLogin send flow now restores `zklogin_eph` session data even before JWT is present, logs the state, and only clears storage after a successful restore to reduce “Ephemeral key not found” errors.
+- **Ephemeral key restore:** zkLogin send flow now restores `zklogin_eph` session data even before JWT is present, logs the state, and only clears storage after a successful restore to reduce "Ephemeral key not found" errors.
+
+### Fixes Applied 2025-12-18 (Session 2)
+
+#### Issue: zklogin-transaction-builder crashing with `Cannot read properties of undefined (reading 'searchParams')`
+
+**Root Cause:** The `DATABASE_URL` environment variable was either:
+1. Not set (falling back to default with wrong password `copilot_secret`)
+2. Or if set with the actual password `pH0DuWF7KzJ4P/4xaAN6XOlsa9SV4epMfwwVh/hQ6gs=`, the `/` and `=` characters break URL parsing in `pg-connection-string`
+
+**Fix Applied:**
+- `docker-compose.yml:113-118` - Changed from `DATABASE_URL` to individual `POSTGRES_*` variables:
+  ```yaml
+  - POSTGRES_HOST=postgres
+  - POSTGRES_PORT=5432
+  - POSTGRES_USER=${POSTGRES_USER:-caishen}
+  - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-copilot_secret}
+  - POSTGRES_DB=${POSTGRES_DB:-caishen_wallet}
+  ```
+- `docker-compose.zklogin.yml:30-35` - Same fix applied
+
+The `db.ts` in transaction-builder already handles `POSTGRES_*` variables by URL-encoding the password when constructing the connection string internally.
+
+#### Issue: `Failed to fetch salt from backend: 404: Not Found`
+
+**Root Cause:** The Python bot (`bot/src/bot/bot.py`) was missing the `/api/link/{token}/zklogin-salt` endpoint that the web-dapp (`services/web-dapp/src/LinkPage.tsx:313`) calls.
+
+**Fix Applied:**
+1. `bot/src/core/config.py:57` - Added `TX_SERVICE_URL` setting:
+   ```python
+   TX_SERVICE_URL: str = Field(default="http://zklogin-transaction-builder:3003")
+   ```
+
+2. `bot/src/bot/bot.py:245-298` - Added `handle_zklogin_salt` endpoint that:
+   - Validates the link token exists
+   - Extracts JWT from request body
+   - Proxies to transaction-builder `/api/v1/zklogin/salt`
+   - Returns salt + derived address to web-dapp
+
+3. `bot/src/bot/bot.py:304` - Registered the route:
+   ```python
+   app.router.add_post("/api/link/{token}/zklogin-salt", handle_zklogin_salt)
+   ```
+
+4. `docker-compose.yml:65,75-76` - Added `TX_SERVICE_URL` env var and dependency:
+   ```yaml
+   - TX_SERVICE_URL=http://zklogin-transaction-builder:3003
+   ...
+   depends_on:
+     zklogin-transaction-builder:
+       condition: service_started
+   ```
+
+**Flow After Fix:**
+1. Web-dapp calls `POST /api/link/{token}/zklogin-salt` with `{ jwt }`
+2. Python bot validates token, proxies to transaction-builder
+3. Transaction-builder derives salt from JWT using `ZKLOGIN_MASTER_SECRET`
+4. Returns `{ salt, provider, subject, derivedAddress, keyClaimName }` to web-dapp
+5. Web-dapp uses returned salt + address for wallet linking
 
 ---
 
@@ -198,6 +256,9 @@ DELETE FROM wallet_links WHERE telegram_id = '1123891263';
 
 ## Testing Checklist
 
+- [ ] zklogin-transaction-builder starts without database errors
+- [ ] Python bot starts and depends on transaction-builder
+- [ ] `/api/link/{token}/zklogin-salt` returns salt from transaction-builder
 - [ ] Wallet linking stores correct address (derived with backend salt)
 - [ ] Salt is persisted in `zklogin_salts` table
 - [ ] Pending tx API returns correct `sender`, `salt`, and `telegramId`
@@ -205,6 +266,23 @@ DELETE FROM wallet_links WHERE telegram_id = '1123891263';
 - [ ] Ephemeral key survives OAuth redirect
 - [ ] Derived address matches stored address
 - [ ] Transaction signs and executes successfully
+
+## Deployment Commands
+
+```bash
+# Restart all containers with rebuild
+docker-compose down
+docker-compose up -d --build
+
+# Check logs for transaction-builder
+docker-compose logs -f zklogin-transaction-builder
+
+# Check logs for bot
+docker-compose logs -f telegram-bot
+
+# Verify transaction-builder health
+curl http://localhost:3003/health
+```
 
 ---
 
@@ -239,9 +317,10 @@ CREATE TABLE wallet_links (
 | File | Purpose |
 |------|---------|
 | `services/web-dapp/src/App.tsx` | Send funds page, zkLogin signing |
-| `services/web-dapp/src/LinkPage.tsx` | Wallet linking flow |
-| `services/user-service/src/saltDb.ts` | Salt storage functions |
-| `src/routes/linking.ts` | Backend linking API |
-| `src/routes/pendingTx.ts` | Pending transaction API |
-| `src/services/telegram/updateHandler.ts` | Bot command handling |
-| `bot/` | Python Telegram bot |
+| `services/web-dapp/src/LinkPage.tsx` | Wallet linking flow, calls `/api/link/{token}/zklogin-salt` |
+| `services/transaction-builder/src/db.ts` | Database connection (uses POSTGRES_* vars) |
+| `services/transaction-builder/src/zklogin/salt.service.ts` | Salt derivation from JWT + master secret |
+| `bot/src/bot/bot.py` | Python bot API endpoints including zklogin-salt proxy |
+| `bot/src/core/config.py` | Bot configuration including TX_SERVICE_URL |
+| `docker-compose.yml` | Container orchestration, env vars, dependencies |
+| `docker-compose.zklogin.yml` | zkLogin-specific compose file |

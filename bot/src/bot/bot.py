@@ -5,6 +5,7 @@ import hmac
 import logging
 import sys
 
+import aiohttp
 from aiohttp import web
 
 from aiogram import Bot, Dispatcher
@@ -241,10 +242,66 @@ def main() -> None:
 
         return web.json_response({"status": "ok"})
 
+    async def handle_zklogin_salt(request: web.Request) -> web.Response:
+        """Proxy zkLogin salt request to transaction-builder service."""
+        token = request.match_info.get("token")
+        if not token:
+            return web.json_response({"error": "token_required"}, status=400)
+
+        # Verify token exists
+        session = await get_linking_session(token)
+        if not session:
+            return web.json_response({"error": "not_found"}, status=404)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+
+        jwt = body.get("jwt")
+        if not jwt:
+            return web.json_response({"error": "jwt_required"}, status=400)
+
+        # Get telegramId from session for salt derivation
+        telegram_id = session.get("telegram_id")
+
+        # Call transaction-builder salt service
+        tx_service_url = settings.TX_SERVICE_URL
+        salt_url = f"{tx_service_url}/api/v1/zklogin/salt"
+
+        try:
+            async with aiohttp.ClientSession() as client_session:
+                async with client_session.post(
+                    salt_url,
+                    json={"jwt": jwt, "telegramId": str(telegram_id) if telegram_id else None},
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Salt service error: {resp.status} - {error_text}")
+                        return web.json_response(
+                            {"error": f"Salt service error: {error_text}"},
+                            status=resp.status
+                        )
+
+                    salt_data = await resp.json()
+                    return web.json_response(salt_data)
+
+        except aiohttp.ClientError as e:
+            logger.error(f"Failed to connect to salt service: {e}")
+            return web.json_response(
+                {"error": "Failed to connect to salt service"},
+                status=503
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in zklogin-salt: {e}")
+            return web.json_response({"error": "Internal server error"}, status=500)
+
     app.router.add_get("/api/link/{token}", handle_get_link)
     app.router.add_post("/api/link/{token}/wallet", handle_set_wallet)
     app.router.add_post("/api/link/{token}/telegram-verify", handle_telegram_verify)
     app.router.add_post("/api/link/{token}/complete", handle_complete)
+    app.router.add_post("/api/link/{token}/zklogin-salt", handle_zklogin_salt)
 
     # Mount dispatcher hooks to aiohttp application
     setup_application(app, dp, bot=bot)

@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     ZKLOGIN_PROVER_URL: str = Field(default="https://prover-dev.mystenlabs.com/v1")
     GOOGLE_CLIENT_ID: str = Field(default="")
 
+    # Internal Services
+    TX_SERVICE_URL: str = Field(default="http://zklogin-transaction-builder:3003")
+
     @property
     def TG_BOT_TOKEN(self) -> str:
         """Alias for compatibility"""

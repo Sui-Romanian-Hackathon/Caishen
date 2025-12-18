@@ -61,6 +61,8 @@ services:
       - ZKLOGIN_SALT_SERVICE_URL=${ZKLOGIN_SALT_SERVICE_URL}
       - ZKLOGIN_PROVER_URL=${ZKLOGIN_PROVER_URL}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      # Internal Services
+      - TX_SERVICE_URL=http://zklogin-transaction-builder:3003
       # Smart Contracts
       - SMART_CONTRACT_PACKAGE_ID=${SMART_CONTRACT_PACKAGE_ID}
       - CONTACT_REGISTRY_ID=${CONTACT_REGISTRY_ID}
@@ -70,6 +72,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      zklogin-transaction-builder:
+        condition: service_started
     restart: unless-stopped
     networks:
       - ai-copilot-network
