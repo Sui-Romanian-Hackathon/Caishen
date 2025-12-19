@@ -1,6 +1,7 @@
 """PostgreSQL database module for user and wallet management"""
 
 import asyncio
+import json
 import logging
 from typing import Optional, List, Dict, Any
 import asyncpg
@@ -135,6 +136,24 @@ async def _create_tables():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_zklogin_salts_address
             ON zklogin_salts(derived_address)
+        """)
+
+        # Ephemeral keys table for zkLogin (temporary storage during OAuth flow)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ephemeral_keys (
+                session_id VARCHAR(64) PRIMARY KEY,
+                secret_key BYTEA NOT NULL,
+                max_epoch INTEGER NOT NULL,
+                randomness TEXT NOT NULL,
+                tx_params JSONB,
+                created_at TIMESTAMP DEFAULT NOW(),
+                expires_at TIMESTAMP NOT NULL
+            )
+        """)
+
+        # Clean up expired ephemeral keys
+        await conn.execute("""
+            DELETE FROM ephemeral_keys WHERE expires_at < NOW()
         """)
 
         logger.info("Database tables verified/created")
@@ -453,6 +472,54 @@ async def set_linking_wallet(
     if zklogin_sub:
         updates["zklogin_sub"] = zklogin_sub
     return await update_linking_session(token, **updates)
+
+
+async def store_ephemeral_key(
+    session_id: str,
+    secret_key: bytes,
+    max_epoch: int,
+    randomness: str,
+    tx_params: Optional[Dict] = None,
+    ttl_minutes: int = 10
+) -> bool:
+    """Store ephemeral key for zkLogin OAuth flow"""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO ephemeral_keys (session_id, secret_key, max_epoch, randomness, tx_params, expires_at)
+                VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '%s minutes')
+                ON CONFLICT (session_id) DO UPDATE SET
+                    secret_key = $2,
+                    max_epoch = $3,
+                    randomness = $4,
+                    tx_params = $5,
+                    expires_at = NOW() + INTERVAL '%s minutes'
+            """ % (ttl_minutes, ttl_minutes), session_id, secret_key, max_epoch, randomness,
+                   json.dumps(tx_params) if tx_params else None)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to store ephemeral key: {e}")
+        return False
+
+
+async def get_ephemeral_key(session_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve and delete ephemeral key (one-time use)"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            DELETE FROM ephemeral_keys
+            WHERE session_id = $1 AND expires_at > NOW()
+            RETURNING secret_key, max_epoch, randomness, tx_params
+        """, session_id)
+        if not row:
+            return None
+        return {
+            "secretKey": list(row["secret_key"]),
+            "maxEpoch": row["max_epoch"],
+            "randomness": row["randomness"],
+            "txParams": json.loads(row["tx_params"]) if row["tx_params"] else None
+        }
 
 
 async def complete_linking_session(token: str) -> Optional[Dict[str, Any]]:

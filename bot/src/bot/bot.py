@@ -21,6 +21,8 @@ from src.database.postgres import (
     get_linking_session,
     set_linking_wallet,
     complete_linking_session,
+    store_ephemeral_key,
+    get_ephemeral_key,
 )
 
 # Configure logging
@@ -297,11 +299,58 @@ def main() -> None:
             logger.error(f"Unexpected error in zklogin-salt: {e}")
             return web.json_response({"error": "Internal server error"}, status=500)
 
+    async def handle_store_ephemeral(request: web.Request) -> web.Response:
+        """Store ephemeral key for zkLogin OAuth flow."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+
+        session_id = body.get("sessionId")
+        secret_key = body.get("secretKey")
+        max_epoch = body.get("maxEpoch")
+        randomness = body.get("randomness")
+        tx_params = body.get("txParams")
+
+        if not all([session_id, secret_key, max_epoch, randomness]):
+            return web.json_response({"error": "missing_fields"}, status=400)
+
+        # Convert secret key array to bytes
+        secret_key_bytes = bytes(secret_key)
+
+        success = await store_ephemeral_key(
+            session_id=session_id,
+            secret_key=secret_key_bytes,
+            max_epoch=max_epoch,
+            randomness=randomness,
+            tx_params=tx_params,
+            ttl_minutes=10
+        )
+
+        if success:
+            return web.json_response({"status": "ok", "sessionId": session_id})
+        else:
+            return web.json_response({"error": "storage_failed"}, status=500)
+
+    async def handle_get_ephemeral(request: web.Request) -> web.Response:
+        """Retrieve ephemeral key (one-time use, deletes after retrieval)."""
+        session_id = request.match_info.get("sessionId")
+        if not session_id:
+            return web.json_response({"error": "session_id_required"}, status=400)
+
+        data = await get_ephemeral_key(session_id)
+        if not data:
+            return web.json_response({"error": "not_found_or_expired"}, status=404)
+
+        return web.json_response(data)
+
     app.router.add_get("/api/link/{token}", handle_get_link)
     app.router.add_post("/api/link/{token}/wallet", handle_set_wallet)
     app.router.add_post("/api/link/{token}/telegram-verify", handle_telegram_verify)
     app.router.add_post("/api/link/{token}/complete", handle_complete)
     app.router.add_post("/api/link/{token}/zklogin-salt", handle_zklogin_salt)
+    app.router.add_post("/api/ephemeral", handle_store_ephemeral)
+    app.router.add_get("/api/ephemeral/{sessionId}", handle_get_ephemeral)
 
     # Mount dispatcher hooks to aiohttp application
     setup_application(app, dp, bot=bot)

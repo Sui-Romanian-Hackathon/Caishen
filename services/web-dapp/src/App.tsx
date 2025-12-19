@@ -691,22 +691,34 @@ function SendFundsPage() {
       setRandomness(rand.toString());
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
-      // Store keypair info AND transaction params in sessionStorage for callback
-      // Store the secret key bytes - getSecretKey() returns 64 bytes for Ed25519
+      // Store keypair server-side (more reliable than sessionStorage across OAuth redirects)
       const secretKeyBytes = eph.getSecretKey();
-      sessionStorage.setItem(ZKLOGIN_STORAGE_KEY, JSON.stringify({
-        secretKey: Array.from(secretKeyBytes),
-        secretKeyLength: secretKeyBytes.length, // Store length for debugging
-        maxEpoch: maxEp,
-        randomness: rand.toString(),
-        // Preserve transaction params for after OAuth
-        txParams: {
-          recipient: form.recipient,
-          amount: form.amount,
-          sender: senderParam,
-          memo: form.memo
-        }
-      }));
+      const sessionId = crypto.randomUUID();
+
+      // Store on server
+      const storeRes = await fetch(`${API_BASE_URL}/api/ephemeral`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          secretKey: Array.from(secretKeyBytes),
+          maxEpoch: maxEp,
+          randomness: rand.toString(),
+          txParams: {
+            recipient: form.recipient,
+            amount: form.amount,
+            sender: senderParam,
+            memo: form.memo
+          }
+        })
+      });
+
+      if (!storeRes.ok) {
+        throw new Error('Failed to store ephemeral key on server');
+      }
+
+      // Store only the session ID in sessionStorage (small, reliable)
+      sessionStorage.setItem(ZKLOGIN_STORAGE_KEY, JSON.stringify({ sessionId }));
 
       // Build OAuth URL - redirect back to /send-funds (whitelisted in Google Console)
       const redirectUri = `${window.location.origin}/send-funds`;
@@ -724,63 +736,77 @@ function SendFundsPage() {
     }
   }, [suiClient]);
 
-  // Restore ephemeral key and transaction params from session storage on mount / when JWT arrives
+  // Restore ephemeral key from server using session ID
   useEffect(() => {
     const stored = sessionStorage.getItem(ZKLOGIN_STORAGE_KEY);
-    console.log('[zkLogin] Checking sessionStorage for ephemeral key', {
+    console.log('[zkLogin] Checking sessionStorage for session ID', {
       hasJwt: !!jwtToken,
       hasStored: !!stored
     });
-    
+
     if (!stored) {
       return;
     }
 
-    try {
-      const data = JSON.parse(stored);
-      console.log('[zkLogin] Restoring from sessionStorage:', {
-        hasSecretKey: !!data.secretKey,
-        maxEpoch: data.maxEpoch,
-        hasRandomness: !!data.randomness,
-        hasTxParams: !!data.txParams
-      });
-      
-      // Restore ephemeral keypair from stored secret key
-      if (data.secretKey) {
-        const secretKeyArray = new Uint8Array(data.secretKey);
-        console.log('[zkLogin] Secret key length:', secretKeyArray.length);
+    const restoreFromServer = async () => {
+      try {
+        const data = JSON.parse(stored);
+        console.log('[zkLogin] Found session data:', { hasSessionId: !!data.sessionId });
 
-        // Ed25519Keypair.fromSecretKey expects 32-byte seed, not 64-byte full key
-        // If we have 64 bytes, take the first 32 (the seed)
-        const seed = secretKeyArray.length === 64
-          ? secretKeyArray.slice(0, 32)
-          : secretKeyArray;
+        if (data.sessionId) {
+          // Fetch from server (one-time use, will be deleted)
+          const res = await fetch(`${API_BASE_URL}/api/ephemeral/${data.sessionId}`);
+          if (!res.ok) {
+            console.error('[zkLogin] Failed to fetch ephemeral key from server:', res.status);
+            sessionStorage.removeItem(ZKLOGIN_STORAGE_KEY);
+            return;
+          }
 
-        const eph = Ed25519Keypair.fromSecretKey(seed);
-        setEphemeralKeypair(eph);
-        console.log('[zkLogin] Ephemeral keypair restored successfully');
-      }
-      if (data.maxEpoch !== undefined) setMaxEpoch(data.maxEpoch);
-      if (data.randomness) setRandomness(data.randomness);
-      
-      if (data.txParams) {
-        setForm({
-          recipient: data.txParams.recipient || '',
-          amount: data.txParams.amount || '',
-          memo: data.txParams.memo || ''
-        });
-      }
-      
-      if (jwtToken) {
+          const serverData = await res.json();
+          console.log('[zkLogin] Retrieved from server:', {
+            hasSecretKey: !!serverData.secretKey,
+            maxEpoch: serverData.maxEpoch,
+            hasRandomness: !!serverData.randomness
+          });
+
+          // Restore ephemeral keypair
+          if (serverData.secretKey) {
+            const secretKeyArray = new Uint8Array(serverData.secretKey);
+            console.log('[zkLogin] Secret key length:', secretKeyArray.length);
+
+            // Ed25519Keypair.fromSecretKey expects 32-byte seed
+            const seed = secretKeyArray.length === 64
+              ? secretKeyArray.slice(0, 32)
+              : secretKeyArray;
+
+            const eph = Ed25519Keypair.fromSecretKey(seed);
+            setEphemeralKeypair(eph);
+            console.log('[zkLogin] Ephemeral keypair restored from server');
+          }
+
+          if (serverData.maxEpoch !== undefined) setMaxEpoch(serverData.maxEpoch);
+          if (serverData.randomness) setRandomness(serverData.randomness);
+
+          if (serverData.txParams) {
+            setForm({
+              recipient: serverData.txParams.recipient || '',
+              amount: serverData.txParams.amount || '',
+              memo: serverData.txParams.memo || ''
+            });
+          }
+
+          // Clear session storage after successful restore
+          sessionStorage.removeItem(ZKLOGIN_STORAGE_KEY);
+          console.log('[zkLogin] Ephemeral key restored and session cleared');
+        }
+      } catch (err) {
+        console.error('[zkLogin] Error restoring from server:', err);
         sessionStorage.removeItem(ZKLOGIN_STORAGE_KEY);
-        console.log('[zkLogin] Restored ephemeral key and cleared sessionStorage');
-      } else {
-        console.log('[zkLogin] Keeping ephemeral data until JWT is available');
       }
-    } catch (e) {
-      console.error('[zkLogin] Error restoring from sessionStorage:', e);
-    }
-  }, [jwtToken]);
+    };
+
+    restoreFromServer();
+  }, []);
 
   // Fetch salt from backend once we have a JWT (no hardcoded fallback)
   useEffect(() => {
