@@ -19,6 +19,7 @@ import {
   decodeJwt as sdkDecodeJwt
 } from '@mysten/sui/zklogin';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { useEffect, useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
@@ -692,23 +693,13 @@ function SendFundsPage() {
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
       // Store keypair server-side (more reliable than sessionStorage across OAuth redirects)
-      const secretKey = eph.getSecretKey();
+      const secretKeyBech32 = eph.getSecretKey(); // Returns Bech32 string like "suiprivkey1..."
       const sessionId = crypto.randomUUID();
 
-      // getSecretKey() may return Uint8Array or base64 string depending on SDK version
-      // We only need the 32-byte seed for fromSecretKey()
-      let fullKeyArray: number[];
-      if (typeof secretKey === 'string') {
-        // Base64 string - decode it
-        const binaryString = atob(secretKey);
-        fullKeyArray = Array.from(binaryString, char => char.charCodeAt(0));
-      } else {
-        // Uint8Array
-        fullKeyArray = Array.from(secretKey);
-      }
-      // Only store first 32 bytes (seed) - fromSecretKey only needs the seed
-      const secretKeyArray = fullKeyArray.slice(0, 32);
-      console.log('[zkLogin] secretKey type:', typeof secretKey, 'full length:', fullKeyArray.length, 'stored length:', secretKeyArray.length);
+      // Decode Bech32 to get raw 32-byte seed
+      const { secretKey: rawSecretKey } = decodeSuiPrivateKey(secretKeyBech32);
+      const secretKeyArray = Array.from(rawSecretKey);
+      console.log('[zkLogin] secretKey decoded, length:', secretKeyArray.length);
 
       // Store on server
       const storeRes = await fetch(`${API_BASE_URL}/api/ephemeral`, {
@@ -786,13 +777,8 @@ function SendFundsPage() {
 
           // Restore ephemeral keypair
           if (serverData.secretKey) {
-            const secretKeyArray = new Uint8Array(serverData.secretKey);
-            console.log('[zkLogin] Secret key length:', secretKeyArray.length);
-
-            // Server stores 32-byte seed, but handle other sizes just in case
-            const seed = secretKeyArray.length > 32
-              ? secretKeyArray.slice(0, 32)
-              : secretKeyArray;
+            const seed = new Uint8Array(serverData.secretKey);
+            console.log('[zkLogin] Secret key length:', seed.length);
 
             if (seed.length !== 32) {
               console.error('[zkLogin] Invalid seed length:', seed.length);
