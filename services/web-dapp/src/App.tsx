@@ -692,8 +692,20 @@ function SendFundsPage() {
       const nonce = generateNonce(eph.getPublicKey(), maxEp, rand);
 
       // Store keypair server-side (more reliable than sessionStorage across OAuth redirects)
-      const secretKeyBytes = eph.getSecretKey();
+      const secretKey = eph.getSecretKey();
       const sessionId = crypto.randomUUID();
+
+      // getSecretKey() may return Uint8Array or base64 string depending on SDK version
+      let secretKeyArray: number[];
+      if (typeof secretKey === 'string') {
+        // Base64 string - decode it
+        const binaryString = atob(secretKey);
+        secretKeyArray = Array.from(binaryString, char => char.charCodeAt(0));
+      } else {
+        // Uint8Array
+        secretKeyArray = Array.from(secretKey);
+      }
+      console.log('[zkLogin] secretKey type:', typeof secretKey, 'array length:', secretKeyArray.length);
 
       // Store on server
       const storeRes = await fetch(`${API_BASE_URL}/api/ephemeral`, {
@@ -701,7 +713,7 @@ function SendFundsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
-          secretKey: Array.from(secretKeyBytes),
+          secretKey: secretKeyArray,
           maxEpoch: maxEp,
           randomness: rand.toString(),
           txParams: {
