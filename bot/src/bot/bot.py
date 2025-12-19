@@ -316,19 +316,21 @@ def main() -> None:
             return web.json_response({"error": "missing_fields"}, status=400)
 
         # Convert secret key array to bytes
-        # Handle both list (from JSON) and string (edge case) formats
-        if isinstance(secret_key, list):
-            secret_key_bytes = bytes(secret_key)
-        elif isinstance(secret_key, str):
-            # Try to parse as JSON array if it's a string
-            import json as json_mod
-            try:
+        # Handle list (from JSON) - elements might be ints or strings
+        try:
+            if isinstance(secret_key, list):
+                # Convert each element to int in case they're strings
+                secret_key_bytes = bytes([int(x) for x in secret_key])
+            elif isinstance(secret_key, str):
+                # Try to parse as JSON array if it's a string
+                import json as json_mod
                 secret_key_list = json_mod.loads(secret_key)
-                secret_key_bytes = bytes(secret_key_list)
-            except Exception:
-                return web.json_response({"error": "invalid_secret_key_format"}, status=400)
-        else:
-            return web.json_response({"error": "secret_key_must_be_array"}, status=400)
+                secret_key_bytes = bytes([int(x) for x in secret_key_list])
+            else:
+                return web.json_response({"error": "secret_key_must_be_array"}, status=400)
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to parse secret_key: {e}, type={type(secret_key)}")
+            return web.json_response({"error": "invalid_secret_key_format"}, status=400)
 
         success = await store_ephemeral_key(
             session_id=session_id,
