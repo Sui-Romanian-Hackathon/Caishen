@@ -1,6 +1,6 @@
 # AI Copilot Wallet — Implementation Status & Checkpoints
 
-> **Spec Version:** 0.4.0 | **Last Updated:** December 13, 2025
+> **Spec Version:** 0.5.0 | **Last Updated:** December 19, 2025
 
 <!-- 🎉 DEPLOYED TO VPS: December 11, 2025
      - Domain: caishen.iseethereaper.com
@@ -12,6 +12,19 @@
      - Migrated from Node.js/Express to Python/aiogram bot
      - Voice transcription now uses Gemini API (replaced Whisper)
      - Simplified architecture: Python bot + PostgreSQL + Web dApp
+
+🔄 ZKLOGIN FIX SESSION: December 19, 2025
+     - Fixed database connection issues (individual POSTGRES_* env vars instead of DATABASE_URL)
+     - Added /api/link/{token}/zklogin-salt endpoint to bot (proxies to transaction-builder)
+     - Fixed JWT audience claim validation in transaction-builder
+     - Fixed SQL syntax error in salt.storage.ts (SET LOCAL → set_config)
+     - Added zklogin_salts and ephemeral_keys tables to PostgreSQL
+     - Added nginx route for /api/v1/zklogin/ to route to transaction-builder
+     - Implemented server-side ephemeral key storage (solves sessionStorage OAuth redirect issues)
+     - Fixed secret key decoding (Bech32 format using decodeSuiPrivateKey)
+     - Changed SALT_SERVICE_URL to use backend proxy (fixes CORS)
+     - Updated nginx config for production static file serving
+     - Current issue: Groth16 proof verification failing (investigating)
 -->
 
 This document provides a comprehensive checklist for agentic implementers. Each checkpoint must be completed and verified before moving to dependent tasks.
@@ -317,28 +330,38 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 
 | Checkpoint | Status | Dependencies | Acceptance Criteria |
 |------------|--------|--------------|---------------------|
-| Ephemeral keypair generation | `[x]` | `@mysten/sui/zklogin` | Keys generated in LinkPage |
+| Ephemeral keypair generation | `[x]` | `@mysten/sui/zklogin` | Keys generated in SendFundsPage |
 | Randomness generation | `[x]` | Crypto | 128-bit random value |
 | Nonce generation | `[x]` | Ephemeral keys | Valid nonce created |
 | OAuth URL construction | `[x]` | Nonce | Redirect URL works |
-| OAuth redirect preserves linking path | `[x]` | Google OAuth | Token stored in sessionStorage before OAuth |
+| **Server-side ephemeral key storage** | `[x]` | PostgreSQL | Keys stored in ephemeral_keys table with 10-min TTL |
+| **Bech32 secret key decoding** | `[x]` | decodeSuiPrivateKey | Proper decoding of suiprivkey format |
 | Google OAuth integration | `[x]` | OAuth URL | JWT returned via hash |
 | OAuth error handling | `[x]` | OAuth URL | Hash errors parsed and shown to user |
 | JWT decoding & validation | `[x]` | OAuth | Claims extracted (sub, aud) |
 | **Backend salt service** | `[x]` | transaction-builder | Bot proxies to `/api/v1/zklogin/salt` |
 | **Salt endpoint in Python bot** | `[x]` | aiohttp | `/api/link/{token}/zklogin-salt` |
-| External prover call (dev) | `[~]` | prover-dev.mystenlabs.com | Used for tx signing |
+| **Ephemeral key API endpoints** | `[x]` | aiohttp | POST/GET `/api/ephemeral` |
+| External prover call (dev) | `[x]` | prover-dev.mystenlabs.com | Proof returned successfully |
 | External prover call (prod) | `[ ]` | prover.mystenlabs.com | Mainnet deployment |
 | Proof caching until expiry | `[ ]` | Redis | Avoids re-proving |
 | Address derivation | `[x]` | jwtToAddress | Sui address calculated |
 | Address verification | `[x]` | Derivation | Matches expected |
-| Session creation with maxEpoch | `[~]` | Address | Stored in sessionStorage |
+| **zkLogin signature construction** | `[~]` | getZkLoginSignature | Signature built from proof |
+| **Groth16 proof verification** | `[~]` | Sui network | Currently failing - investigating |
 | Session validation (epoch check) | `[ ]` | SuiClient | Validates against chain |
 | Facebook OAuth | `[ ]` | OAuth flow | Phase 2 provider |
 | Apple OAuth | `[ ]` | OAuth flow | Phase 2 provider |
 | Twitch OAuth | `[S]` | OAuth flow | Gaming audience |
 
 > **Note:** Using local transaction-builder for salt derivation (HMAC from master secret) instead of Mysten Labs salt service. This provides deterministic salts and encrypted storage.
+
+> **Server-side Ephemeral Key Storage (Dec 19, 2025):**
+> - Ephemeral keys are now stored server-side in PostgreSQL `ephemeral_keys` table
+> - Solves sessionStorage reliability issues across OAuth redirects
+> - Keys have 10-minute TTL and are deleted after single use (one-time retrieval)
+> - API: `POST /api/ephemeral` to store, `GET /api/ephemeral/{sessionId}` to retrieve
+> - Uses `decodeSuiPrivateKey()` for proper Bech32 decoding of `suiprivkey1...` format
 
 ### 3.3 External Wallet Integration
 
