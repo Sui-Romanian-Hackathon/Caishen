@@ -26,3 +26,5 @@ redis_data/
 services/web-dapp/out/assets/*
 bot-from-the-future/
 .venv/*
+web/*
+services/web-dapp/out/*
