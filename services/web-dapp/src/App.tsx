@@ -696,16 +696,19 @@ function SendFundsPage() {
       const sessionId = crypto.randomUUID();
 
       // getSecretKey() may return Uint8Array or base64 string depending on SDK version
-      let secretKeyArray: number[];
+      // We only need the 32-byte seed for fromSecretKey()
+      let fullKeyArray: number[];
       if (typeof secretKey === 'string') {
         // Base64 string - decode it
         const binaryString = atob(secretKey);
-        secretKeyArray = Array.from(binaryString, char => char.charCodeAt(0));
+        fullKeyArray = Array.from(binaryString, char => char.charCodeAt(0));
       } else {
         // Uint8Array
-        secretKeyArray = Array.from(secretKey);
+        fullKeyArray = Array.from(secretKey);
       }
-      console.log('[zkLogin] secretKey type:', typeof secretKey, 'array length:', secretKeyArray.length);
+      // Only store first 32 bytes (seed) - fromSecretKey only needs the seed
+      const secretKeyArray = fullKeyArray.slice(0, 32);
+      console.log('[zkLogin] secretKey type:', typeof secretKey, 'full length:', fullKeyArray.length, 'stored length:', secretKeyArray.length);
 
       // Store on server
       const storeRes = await fetch(`${API_BASE_URL}/api/ephemeral`, {
@@ -786,10 +789,16 @@ function SendFundsPage() {
             const secretKeyArray = new Uint8Array(serverData.secretKey);
             console.log('[zkLogin] Secret key length:', secretKeyArray.length);
 
-            // Ed25519Keypair.fromSecretKey expects 32-byte seed
-            const seed = secretKeyArray.length === 64
+            // Server stores 32-byte seed, but handle other sizes just in case
+            const seed = secretKeyArray.length > 32
               ? secretKeyArray.slice(0, 32)
               : secretKeyArray;
+
+            if (seed.length !== 32) {
+              console.error('[zkLogin] Invalid seed length:', seed.length);
+              sessionStorage.removeItem(ZKLOGIN_STORAGE_KEY);
+              return;
+            }
 
             const eph = Ed25519Keypair.fromSecretKey(seed);
             setEphemeralKeypair(eph);
