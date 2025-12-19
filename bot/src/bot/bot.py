@@ -316,7 +316,19 @@ def main() -> None:
             return web.json_response({"error": "missing_fields"}, status=400)
 
         # Convert secret key array to bytes
-        secret_key_bytes = bytes(secret_key)
+        # Handle both list (from JSON) and string (edge case) formats
+        if isinstance(secret_key, list):
+            secret_key_bytes = bytes(secret_key)
+        elif isinstance(secret_key, str):
+            # Try to parse as JSON array if it's a string
+            import json as json_mod
+            try:
+                secret_key_list = json_mod.loads(secret_key)
+                secret_key_bytes = bytes(secret_key_list)
+            except Exception:
+                return web.json_response({"error": "invalid_secret_key_format"}, status=400)
+        else:
+            return web.json_response({"error": "secret_key_must_be_array"}, status=400)
 
         success = await store_ephemeral_key(
             session_id=session_id,
