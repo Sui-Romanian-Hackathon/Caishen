@@ -24,7 +24,8 @@
      - Fixed secret key decoding (Bech32 format using decodeSuiPrivateKey)
      - Changed SALT_SERVICE_URL to use backend proxy (fixes CORS)
      - Updated nginx config for production static file serving
-     - Current issue: Groth16 proof verification failing (investigating)
+     - Fixed Groth16 proof verification: Changed prover URL from prover-dev.mystenlabs.com (devnet)
+       to prover.mystenlabs.com (testnet/mainnet production prover)
 -->
 
 This document provides a comprehensive checklist for agentic implementers. Each checkpoint must be completed and verified before moving to dependent tasks.
@@ -342,13 +343,13 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | **Backend salt service** | `[x]` | transaction-builder | Bot proxies to `/api/v1/zklogin/salt` |
 | **Salt endpoint in Python bot** | `[x]` | aiohttp | `/api/link/{token}/zklogin-salt` |
 | **Ephemeral key API endpoints** | `[x]` | aiohttp | POST/GET `/api/ephemeral` |
-| External prover call (dev) | `[x]` | prover-dev.mystenlabs.com | Proof returned successfully |
-| External prover call (prod) | `[ ]` | prover.mystenlabs.com | Mainnet deployment |
+| External prover call (dev) | `[x]` | prover-dev.mystenlabs.com | Proof returned (devnet only) |
+| External prover call (prod) | `[x]` | prover.mystenlabs.com | Testnet/mainnet prover working |
 | Proof caching until expiry | `[ ]` | Redis | Avoids re-proving |
 | Address derivation | `[x]` | jwtToAddress | Sui address calculated |
 | Address verification | `[x]` | Derivation | Matches expected |
-| **zkLogin signature construction** | `[~]` | getZkLoginSignature | Signature built from proof |
-| **Groth16 proof verification** | `[~]` | Sui network | Currently failing - investigating |
+| **zkLogin signature construction** | `[x]` | getZkLoginSignature | Signature built from proof |
+| **Groth16 proof verification** | `[x]` | Sui network | Fixed: using production prover |
 | Session validation (epoch check) | `[ ]` | SuiClient | Validates against chain |
 | Facebook OAuth | `[ ]` | OAuth flow | Phase 2 provider |
 | Apple OAuth | `[ ]` | OAuth flow | Phase 2 provider |

@@ -34,8 +34,8 @@ import { AddressDisplay } from '@/components/AddressDisplay';
 
 // Configuration from environment variables (build-time)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
-// Prover URL for zkLogin
-const PROVER_URL = 'https://prover-dev.mystenlabs.com/v1';
+// Prover URL for zkLogin (use prover.mystenlabs.com for testnet/mainnet, prover-dev for devnet)
+const PROVER_URL = 'https://prover.mystenlabs.com/v1';
 const SUI_NETWORK = import.meta.env.VITE_SUI_NETWORK || 'testnet';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
@@ -1045,7 +1045,7 @@ function SendFundsPage() {
       setZkStatus('Requesting zk proof (this may take 10-30s)...');
       console.log('[zkLogin] ===== PROVER REQUEST =====');
       
-      const proverUrl = 'https://prover-dev.mystenlabs.com/v1';
+      const proverUrl = PROVER_URL; // Production prover for testnet/mainnet
       const extendedEphPubKey = getExtendedEphemeralPublicKey(eph.getPublicKey());
       
       const proofResponse = await fetch(proverUrl, {
