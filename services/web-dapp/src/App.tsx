@@ -700,6 +700,7 @@ function SendFundsPage() {
       const { secretKey: rawSecretKey } = decodeSuiPrivateKey(secretKeyBech32);
       const secretKeyArray = Array.from(rawSecretKey);
       console.log('[zkLogin] secretKey decoded, length:', secretKeyArray.length);
+      console.log('[zkLogin] STORE - ephemeral pubkey:', eph.getPublicKey().toBase64());
 
       // Store on server
       const storeRes = await fetch(`${API_BASE_URL}/api/ephemeral`, {
@@ -788,6 +789,7 @@ function SendFundsPage() {
 
             const eph = Ed25519Keypair.fromSecretKey(seed);
             setEphemeralKeypair(eph);
+            console.log('[zkLogin] RESTORE - ephemeral pubkey:', eph.getPublicKey().toBase64());
             console.log('[zkLogin] Ephemeral keypair restored from server');
           }
 
@@ -985,6 +987,15 @@ function SendFundsPage() {
         // If JWT came from OAuth but we don't have stored keys, we can't proceed
         // The nonce in the JWT was computed with specific ephemeral key params
         setZkError('Ephemeral key not found. Please sign in with Google again to get a fresh token.');
+        setZkStatus(null);
+        return;
+      }
+
+      // Verify epoch hasn't expired
+      const { epoch: currentEpoch } = await suiClient.getLatestSuiSystemState();
+      console.log('[zkLogin] Current epoch:', currentEpoch, 'maxEpoch:', maxEp);
+      if (Number(currentEpoch) > maxEp) {
+        setZkError(`Session expired (current epoch ${currentEpoch} > maxEpoch ${maxEp}). Please sign in with Google again.`);
         setZkStatus(null);
         return;
       }
