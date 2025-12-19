@@ -20,6 +20,7 @@ import {
 } from '@mysten/sui/zklogin';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
+import { EnokiClient } from '@mysten/enoki';  // Using Enoki
 import { useEffect, useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
@@ -35,8 +36,12 @@ import { AddressDisplay } from '@/components/AddressDisplay';
 // Configuration from environment variables (build-time)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 // Prover URL for zkLogin (use prover.mystenlabs.com for testnet/mainnet, prover-dev for devnet)
-const PROVER_URL = 'https://prover.mystenlabs.com/v1';
+// const PROVER_URL = 'https://prover.mystenlabs.com/v1'; 
+const ENOKI_API_KEY = import.meta.env.VITE_ENOKI_API_KEY || ''; // Using Enoki
 const SUI_NETWORK = import.meta.env.VITE_SUI_NETWORK || 'testnet';
+
+// Initialize Enoki client for zkLogin proofs // Using Enoki 
+const enokiClient = new EnokiClient({ apiKey: ENOKI_API_KEY }); // Using Enoki
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
 const SALT_SERVICE_URL =
@@ -1042,32 +1047,45 @@ function SendFundsPage() {
       });
 
       // 6) Request proof from Mysten prover
-      setZkStatus('Requesting zk proof (this may take 10-30s)...');
-      console.log('[zkLogin] ===== PROVER REQUEST =====');
-      
-      const proverUrl = PROVER_URL; // Production prover for testnet/mainnet
+      // setZkStatus('Requesting zk proof (this may take 10-30s)...');
+      // console.log('[zkLogin] ===== PROVER REQUEST =====');
+
+      // 6) Request proof from Enoki
+      setZkStatus('Requesting zk proof via Enoki (this may take 10-30s)...'); // Using Enoki
+      console.log('[zkLogin] ===== ENOKI PROVER REQUEST =====');  // Using Enoki
+
+      // const proverUrl = PROVER_URL; // Production prover for testnet/mainnet
+
       const extendedEphPubKey = getExtendedEphemeralPublicKey(eph.getPublicKey());
-      
-      const proofResponse = await fetch(proverUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jwt: jwtToken,
-          extendedEphemeralPublicKey: extendedEphPubKey,
-          maxEpoch: maxEp,
-          jwtRandomness: rand,
-          salt: saltValue,
-          keyClaimName: 'sub'
-        })
+      console.log('[zkLogin] extendedEphemeralPublicKey:', extendedEphPubKey);  // Using Enoki
+
+      //  const proofResponse = await fetch(proverUrl, {
+      //  method: 'POST',
+      //  headers: { 'Content-Type': 'application/json' },
+      //  body: JSON.stringify({
+
+      const proof = await enokiClient.createZkLoginZkp({  // Using Enoki
+        jwt: jwtToken,
+      // extendedEphemeralPublicKey: extendedEphPubKey,
+        ephemeralPublicKey: eph.getPublicKey(), // Using Enoki
+        maxEpoch: maxEp,
+      //  jwtRandomness: rand,
+      //  salt: saltValue,
+      //  keyClaimName: 'sub'
+      //})
+        randomness: rand,// Using Enoki
+        salt: saltValue // Using Enoki
       });
+
+      //  if (!proofResponse.ok) {
+      //const errorText = await proofResponse.text();
+      //throw new Error(`Prover error ${proofResponse.status}: ${errorText}`);
+      //}
       
-      if (!proofResponse.ok) {
-        const errorText = await proofResponse.text();
-        throw new Error(`Prover error ${proofResponse.status}: ${errorText}`);
-      }
-      
-      const proof = await proofResponse.json();
-      console.log('[zkLogin] ===== PROVER RESPONSE =====');
+      //const proof = await proofResponse.json();
+      //console.log('[zkLogin] ===== PROVER RESPONSE =====');
+
+      console.log('[zkLogin] ===== ENOKI PROVER RESPONSE =====');   // Using Enoki
       console.log('[zkLogin] Full proof:', JSON.stringify(proof, null, 2));
       
       // Build zkLogin inputs - use addressSeed from prover if available
