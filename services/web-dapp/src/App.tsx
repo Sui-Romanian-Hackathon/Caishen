@@ -1000,13 +1000,32 @@ function SendFundsPage() {
         return;
       }
       
+      // Log full public key for debugging
+      const ephPubKeyBase64 = eph.getPublicKey().toBase64();
       console.log('[zkLogin] Using ephemeral key:', {
-        publicKey: eph.getPublicKey().toSuiAddress().slice(0, 20) + '...',
+        publicKeyBase64: ephPubKeyBase64,
+        publicKeySuiAddr: eph.getPublicKey().toSuiAddress(),
         maxEpoch: maxEp,
         randomness: rand.slice(0, 20) + '...'
       });
 
       const nonce = generateNonce(eph.getPublicKey(), maxEp, BigInt(rand));
+
+      // Verify nonce matches JWT
+      const jwtParts = jwtToken.split('.');
+      const jwtPayload = JSON.parse(atob(jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')));
+      console.log('[zkLogin] Nonce verification:', {
+        computedNonce: nonce,
+        jwtNonce: jwtPayload.nonce,
+        match: nonce === jwtPayload.nonce
+      });
+
+      if (nonce !== jwtPayload.nonce) {
+        console.error('[zkLogin] CRITICAL: Nonce mismatch! Ephemeral key was not restored correctly.');
+        setZkError('Nonce mismatch - ephemeral key restore failed. Please sign in again.');
+        setZkStatus(null);
+        return;
+      }
 
       // 4) Build unsigned transaction (sender = zkLogin address)
       const tx = new Transaction();
