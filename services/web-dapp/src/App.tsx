@@ -1011,7 +1011,7 @@ function SendFundsPage() {
         publicKeyBase64: ephPubKeyBase64,
         publicKeySuiAddr: eph.getPublicKey().toSuiAddress(),
         maxEpoch: maxEp,
-        randomness: rand.slice(0, 20) + '...'
+        randomness: rand
       });
 
       const nonce = generateNonce(eph.getPublicKey(), maxEp, BigInt(rand));
