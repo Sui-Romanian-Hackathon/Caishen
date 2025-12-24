@@ -1064,19 +1064,27 @@ function SendFundsPage() {
       //  headers: { 'Content-Type': 'application/json' },
       //  body: JSON.stringify({
 
-      const proof = await enokiClient.createZkLoginZkp({  // Using Enoki
-        jwt: jwtToken,
-        network: SUI_NETWORK as 'testnet' | 'mainnet', // Required for Enoki API
-      // extendedEphemeralPublicKey: extendedEphPubKey,
-        ephemeralPublicKey: eph.getPublicKey(), // Using Enoki
-        maxEpoch: maxEp,
-      //  jwtRandomness: rand,
-      //  salt: saltValue,
-      //  keyClaimName: 'sub'
-      //})
-        randomness: rand,// Using Enoki
-        salt: saltValue // Using Enoki
+      // Direct fetch to pass our DB salt (SDK doesn't include salt in request body)
+      const proofRes = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/zkp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${ENOKI_API_KEY}`,
+          'zklogin-jwt': jwtToken
+        },
+        body: JSON.stringify({
+          network: SUI_NETWORK,
+          ephemeralPublicKey: eph.getPublicKey().toSuiPublicKey(),
+          maxEpoch: maxEp,
+          randomness: rand,
+          salt: saltValue
+        })
       });
+      if (!proofRes.ok) {
+        const errText = await proofRes.text();
+        throw new Error(`Enoki error ${proofRes.status}: ${errText}`);
+      }
+      const { data: proof } = await proofRes.json();
 
       //  if (!proofResponse.ok) {
       //const errorText = await proofResponse.text();
