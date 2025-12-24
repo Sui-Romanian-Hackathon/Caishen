@@ -41,7 +41,7 @@ const ENOKI_API_KEY = import.meta.env.VITE_ENOKI_API_KEY || ''; // Using Enoki
 const SUI_NETWORK = import.meta.env.VITE_SUI_NETWORK || 'testnet';
 
 // Initialize Enoki client for zkLogin proofs // Using Enoki 
-const enokiClient = new EnokiClient({ apiKey: ENOKI_API_KEY }); // Using Enoki
+const enokiClient = new EnokiClient({ apiKey: ENOKI_API_KEY, network: SUI_NETWORK as 'testnet' | 'mainnet' }); // Using Enoki
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://caishen.iseethereaper.com';
 const REDIRECT_URI = typeof window !== 'undefined' ? `${window.location.origin}/callback` : '';
 const SALT_SERVICE_URL =
@@ -1066,6 +1066,7 @@ function SendFundsPage() {
 
       const proof = await enokiClient.createZkLoginZkp({  // Using Enoki
         jwt: jwtToken,
+        network: SUI_NETWORK as 'testnet' | 'mainnet', // Required for Enoki API
       // extendedEphemeralPublicKey: extendedEphPubKey,
         ephemeralPublicKey: eph.getPublicKey(), // Using Enoki
         maxEpoch: maxEp,
