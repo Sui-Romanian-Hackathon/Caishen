@@ -6,8 +6,11 @@ import {
   SaltRequest,
   SaltResponse,
   SaltServiceConfig,
-  ZkLoginError
+  ZkLoginError,
+  JwtClaims
 } from './types';
+
+const ENOKI_API_URL = 'https://api.enoki.mystenlabs.com/v1/zklogin';
 
 export function deriveSalt(params: {
   masterSecret: string;
@@ -38,6 +41,39 @@ export class SaltService {
 
   constructor(private readonly options: SaltServiceOptions) {}
 
+  /**
+   * Fetch salt from Enoki API
+   */
+  private async fetchSaltFromEnoki(jwt: string): Promise<{ salt: string; address: string }> {
+    const apiKey = this.options.config.enokiApiKey;
+    if (!apiKey) {
+      throw new ZkLoginError('Enoki API key not configured', 500);
+    }
+
+    const response = await fetch(ENOKI_API_URL, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'zklogin-jwt': jwt
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new ZkLoginError(`Enoki salt fetch failed: ${errorText}`, response.status);
+    }
+
+    const data = await response.json();
+    if (!data?.data?.salt) {
+      throw new ZkLoginError('Enoki did not return a salt', 500);
+    }
+
+    return {
+      salt: data.data.salt,
+      address: data.data.address
+    };
+  }
+
   async getSalt(request: SaltRequest): Promise<SaltResponse> {
     const start = Date.now();
 
@@ -51,28 +87,73 @@ export class SaltService {
     }
 
     const claims = validation.claims;
-    const salt = deriveSalt({
-      masterSecret: this.options.config.masterSecret,
-      issuer: claims.iss,
-      audience: claims.aud,
-      subject: claims.sub,
-      saltLength: this.options.config.saltLength
-    });
+    const audience = Array.isArray(claims.aud) ? claims.aud[0] : claims.aud;
 
-    const derivedAddress = jwtToAddress(request.jwt.trim(), salt);
+    // Check if we already have a salt stored for this user
+    if (request.telegramId) {
+      const existing = await this.options.storage.getSalt(
+        claims.iss,
+        claims.sub,
+        audience,
+        request.telegramId
+      );
+      if (existing) {
+        this.options.logger?.info(
+          {
+            endpoint: '/api/v1/zklogin/salt',
+            telegramId: request.telegramId,
+            provider: existing.provider,
+            durationMs: Date.now() - start,
+            success: true,
+            source: 'cache'
+          },
+          'Salt request completed (from cache)'
+        );
+        return {
+          salt: existing.salt,
+          provider: existing.provider,
+          subject: existing.subject,
+          derivedAddress: existing.derivedAddress,
+          keyClaimName: existing.keyClaimName
+        };
+      }
+    }
+
+    // Determine salt: use Enoki if configured, otherwise derive locally
+    let salt: string;
+    let derivedAddress: string;
+
+    if (this.options.config.enokiApiKey) {
+      // Fetch salt from Enoki
+      const enokiResult = await this.fetchSaltFromEnoki(request.jwt);
+      salt = enokiResult.salt;
+      derivedAddress = enokiResult.address;
+      this.options.logger?.info({ source: 'enoki' }, 'Salt fetched from Enoki');
+    } else {
+      // Derive salt locally (legacy behavior)
+      salt = deriveSalt({
+        masterSecret: this.options.config.masterSecret,
+        issuer: claims.iss,
+        audience: claims.aud,
+        subject: claims.sub,
+        saltLength: this.options.config.saltLength
+      });
+      derivedAddress = jwtToAddress(request.jwt.trim(), salt);
+    }
 
     const baseRecord = {
       telegramId: request.telegramId ?? 'anonymous',
       provider: claims.iss,
       subject: claims.sub,
-      audience: Array.isArray(claims.aud) ? claims.aud[0] : claims.aud,
+      audience,
       salt,
       derivedAddress,
       keyClaimName: this.keyClaimName
     };
 
+    // Store the salt if we have a telegramId
     const record = request.telegramId
-      ? await this.options.storage.getOrCreate(baseRecord)
+      ? await this.options.storage.saveSalt(baseRecord)
       : baseRecord;
 
     this.options.logger?.info(
@@ -81,7 +162,8 @@ export class SaltService {
         telegramId: request.telegramId,
         provider: record.provider,
         durationMs: Date.now() - start,
-        success: true
+        success: true,
+        source: this.options.config.enokiApiKey ? 'enoki' : 'derived'
       },
       'Salt request completed'
     );

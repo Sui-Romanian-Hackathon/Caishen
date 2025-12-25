@@ -20,6 +20,7 @@ export interface SaltServiceConfig {
   allowedAudiences: string[];
   saltLength: number;
   skipSignatureVerification?: boolean;
+  enokiApiKey?: string;  // If set, fetch salt from Enoki instead of deriving locally
 }
 
 export interface JwtValidationResult {

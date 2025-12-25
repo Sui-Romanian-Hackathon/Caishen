@@ -1,6 +1,6 @@
 # AI Copilot Wallet — Implementation Status & Checkpoints
 
-> **Spec Version:** 0.5.0 | **Last Updated:** December 19, 2025
+> **Spec Version:** 0.6.0 | **Last Updated:** December 25, 2025
 
 <!-- 🎉 DEPLOYED TO VPS: December 11, 2025
      - Domain: caishen.iseethereaper.com
@@ -26,6 +26,15 @@
      - Updated nginx config for production static file serving
      - Fixed Groth16 proof verification: Changed prover URL from prover-dev.mystenlabs.com (devnet)
        to prover.mystenlabs.com (testnet/mainnet production prover)
+
+🔄 ENOKI SALT INTEGRATION: December 25, 2025
+     - Backend salt service now fetches salt from Enoki API instead of deriving locally
+     - This ensures address consistency between our salt service and Enoki's prover
+     - Split API keys: VITE_ENOKI_API_KEY (public/frontend) and ENOKI_API_KEY (private/backend)
+     - Added fetchSaltFromEnoki() method to salt.service.ts
+     - Salt is fetched from Enoki and cached in PostgreSQL for future requests
+     - Frontend uses Enoki for ZK proof generation with matching salt
+     - Fixed addressSeed mismatch issues that occurred when using locally-derived salts
 -->
 
 This document provides a comprehensive checklist for agentic implementers. Each checkpoint must be completed and verified before moving to dependent tasks.
@@ -318,16 +327,16 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 6. OAuth callback to /link#id_token=... → token retrieved from sessionStorage
 7. Web-dapp calls POST /api/link/{token}/zklogin-salt with JWT
 8. Bot proxies to transaction-builder /api/v1/zklogin/salt
-9. transaction-builder validates JWT, derives salt from master secret, returns salt + address
+9. transaction-builder validates JWT, fetches salt from Enoki API, caches in DB, returns salt + address
 10. Web-dapp derives zkLogin address, calls /api/link/{token}/wallet
 11. User clicks Telegram Login Widget to verify identity
 12. Server verifies HMAC hash AND matches Telegram ID to token
 13. Wallet linked to Telegram account ✅
 
-> Latest: Linking sessions, wallet type (zkLogin/Slush/external), and zkLogin salt/sub are now persisted in Postgres and exposed via the bot's aiohttp API (`/api/link/:token`, `/api/link/:token/wallet`, `/api/link/:token/zklogin-salt`, `/api/link/:token/complete`). Salt derivation uses HMAC from ZKLOGIN_MASTER_SECRET for deterministic addresses.
+> Latest: Linking sessions, wallet type (zkLogin/Slush/external), and zkLogin salt/sub are now persisted in Postgres and exposed via the bot's aiohttp API (`/api/link/:token`, `/api/link/:token/wallet`, `/api/link/:token/zklogin-salt`, `/api/link/:token/complete`). Salt is fetched from Enoki API and cached in PostgreSQL for consistent address derivation.
 ```
 
-### 3.2 zkLogin Implementation (Using External Mysten Labs APIs)
+### 3.2 zkLogin Implementation (Using Enoki APIs)
 
 | Checkpoint | Status | Dependencies | Acceptance Criteria |
 |------------|--------|--------------|---------------------|
@@ -355,7 +364,7 @@ This document provides a comprehensive checklist for agentic implementers. Each 
 | Apple OAuth | `[ ]` | OAuth flow | Phase 2 provider |
 | Twitch OAuth | `[S]` | OAuth flow | Gaming audience |
 
-> **Note:** Using local transaction-builder for salt derivation (HMAC from master secret) instead of Mysten Labs salt service. This provides deterministic salts and encrypted storage.
+> **Note:** Backend salt service now fetches salt from Enoki API (when `ENOKI_API_KEY` is configured) instead of deriving locally. This ensures consistency between our salt and Enoki's prover. Salts are cached in PostgreSQL for future requests.
 
 > **Server-side Ephemeral Key Storage (Dec 19, 2025):**
 > - Ephemeral keys are now stored server-side in PostgreSQL `ephemeral_keys` table
@@ -609,15 +618,15 @@ This document provides a comprehensive checklist for agentic implementers. Each 
         │                       │                       │                       │
         ▼                       ▼                       ▼                       ▼
 ┌───────────────┐       ┌───────────────┐       ┌───────────────────────┐ ┌─────────────────────┐
-│   SQLite3     │       │    Redis      │       │  External Mysten Labs │ │  Smart Contracts    │
+│   SQLite3     │       │    Redis      │       │  Enoki + Mysten Labs  │ │  Smart Contracts    │
 │  (Volume)     │       │  Port 6379    │       │  APIs                 │ │  (Sui Blockchain)   │
-│  • users.db   │       │  • Sessions   │       │  • salt.api.mystenlabs│ │  • BatchTransfer    │
-│  • txs.db     │       │  • Rate limits│       │  • prover.mystenlabs  │ │  • ContactRegistry  │
+│  • users.db   │       │  • Sessions   │       │  • api.enoki (salt)   │ │  • BatchTransfer    │
+│  • txs.db     │       │  • Rate limits│       │  • api.enoki (zkp)    │ │  • ContactRegistry  │
 │  • contacts   │       │  • Cache      │       │  • No local resources │ │  • SpendingGuardian │
 └───────────────┘       └───────────────┘       └───────────────────────┘ └─────────────────────┘
 ```
 
-> **Note:** Architecture optimized for 2GB RAM server. PostgreSQL replaced with SQLite3 (~400MB saved). zklogin-service removed in favor of external Mysten Labs APIs (~200MB saved). Smart contracts deployed on Sui blockchain for batch transfers, on-chain contacts, and spending limits.
+> **Note:** Architecture optimized for 2GB RAM server. PostgreSQL replaced with SQLite3 (~400MB saved). zklogin-service removed in favor of Enoki APIs for salt and ZK proof generation (~200MB saved). Smart contracts deployed on Sui blockchain for batch transfers, on-chain contacts, and spending limits.
 
 ---
 

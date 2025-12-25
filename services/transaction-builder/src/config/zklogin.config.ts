@@ -70,13 +70,17 @@ export function loadZkLoginConfig(): ZkLoginConfig {
   const skipSignatureVerification =
     process.env.ZKLOGIN_SKIP_SIGNATURE === 'true' || process.env.NODE_ENV === 'test';
 
+  // If ENOKI_API_KEY is set, fetch salt from Enoki instead of deriving locally
+  const enokiApiKey = process.env.ENOKI_API_KEY;
+
   return {
     salt: {
       masterSecret,
       allowedIssuers: getAllowedIssuers(),
       allowedAudiences,
       saltLength: DEFAULT_SALT_BYTES,
-      skipSignatureVerification
+      skipSignatureVerification,
+      enokiApiKey
     },
     encryptionKey,
     jwksUrl: process.env.ZKLOGIN_JWKS_URL || GOOGLE_JWKS_URL,
