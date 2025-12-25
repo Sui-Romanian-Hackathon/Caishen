@@ -1,6 +1,6 @@
 # AI Copilot Wallet — Implementation Status & Checkpoints
 
-> **Spec Version:** 0.6.0 | **Last Updated:** December 25, 2025
+> **Spec Version:** 0.6.3 | **Last Updated:** December 25, 2025
 
 <!-- 🎉 DEPLOYED TO VPS: December 11, 2025
      - Domain: caishen.iseethereaper.com

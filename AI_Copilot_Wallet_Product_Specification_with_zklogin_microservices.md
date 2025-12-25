@@ -2,10 +2,10 @@
 
 ## Telegram Bot Natural Language Wallet Assistant for Sui Blockchain
 
-**Document Version:** 0.4.1  
-**Last Updated:** December 14, 2025  
-**Classification:** Technical Product Specification  
-**Target Platform:** Telegram Bot + External Web dApp  
+**Document Version:** 0.6.3
+**Last Updated:** December 25, 2025
+**Classification:** Technical Product Specification
+**Target Platform:** Telegram Bot + External Web dApp
 **Target Network:** Sui Testnet (development) / Sui Mainnet (production)
 
 ---
@@ -20,7 +20,7 @@ This document is the functional specification. The separate status file tracks t
 
 | Phase   | Description                        | Status |
 | ------- | ---------------------------------- | ------ |
-| Phase 1 | Foundation (Environment, Bot, SDK) | ✅ Core bot + Sui RPC flows live (TypeScript/Express) |
+| Phase 1 | Foundation (Environment, Bot, SDK) | ✅ Core bot + Sui RPC flows live (Python/aiogram) |
 | Phase 2 | NLP & Intelligence (Gemini, Tools) | ✅ Gemini tool calling working end-to-end |
 | Phase 3 | Authentication (zkLogin, Wallets)  | ✅ Linking + Telegram HMAC + zkLogin flow marked complete |
 | Phase 4 | Web dApp (Signing Interface)       | ✅ Linking/send pages working for signing flows |
@@ -29,7 +29,7 @@ This document is the functional specification. The separate status file tracks t
 
 **Overall Progress: ~80% complete (Phases 1-5 functionally live; production hardening pending)**
 
-**Current runtime reality:** Active bot is the **Python/aiogram** service in `/bot` using Gemini tool-calling; the TypeScript Express scaffold is retained but not primary. Microservice folders (`nlp-service`, `zklogin-service`, `notification-service`) are placeholders; `user-service` and `transaction-builder` expose basic HTTP endpoints but are only partially integrated. The React web dApp handles linking, zkLogin OAuth, and transaction signing using pending transaction IDs.
+**Current runtime reality:** Active bot is the **Python/aiogram** service in `/bot` using Gemini tool-calling; the TypeScript/Express services remain for pending-tx and linking APIs. Microservice folders (`nlp-service`, `zklogin-service`, `notification-service`) are placeholders; `transaction-builder` is active for zkLogin salt/JWT validation (Enoki-backed) and proof endpoints, while `user-service` is optional. The React web dApp handles linking, pending-tx fetch/consume, server-side ephemeral-key restore, zkLogin OAuth, and transaction signing.
 
 ---
 
@@ -75,24 +75,24 @@ The system architecture flows as follows: Users interact with the Telegram Bot t
 
 ### 3.3 Microservice Architecture
 
-The target architecture is service-oriented, but the **current runtime is a Python/aiogram bot plus a React web dApp**, with optional Node services that are still stubs. The TypeScript Express scaffold is retained for reference.
+The target architecture is service-oriented, but the **current runtime is a Python/aiogram bot plus a React web dApp**, with optional Node services (transaction-builder active; others stubs). The TypeScript/Express scaffold remains for pending-tx and linking APIs.
 
-#### 3.3.1 Service Definitions (v0.4.1 - Current Implementation Snapshot)
+#### 3.3.1 Service Definitions (v0.6.3 - Current Implementation Snapshot)
 
 | Service | Responsibility | Technology Stack | Port | Status |
 | --- | --- | --- | --- | --- |
-| `bot-api` | Telegram webhook, Gemini calls, Sui RPC, pending-tx + linking APIs, contact lookup via user-service | Python / aiogram | 3001 | **Active** |
+| `bot-api` | Telegram webhook, Gemini calls, Sui RPC, pending-tx + linking APIs, ephemeral key storage, contact lookup via user-service | Python / aiogram | 3001 | **Active** |
 | `web-dapp` | Signing interface, zkLogin OAuth, wallet connection, pending-tx fetch/consume | React / Vite / @mysten/dapp-kit | 5173 | **Active** |
-| `postgres` | Users, wallet links, contacts, sessions, tx logs, zkLogin salts | PostgreSQL 16 | 5432 | **Active schema** |
+| `postgres` | Users, wallet links, contacts, sessions, tx logs, zkLogin salts, ephemeral keys | PostgreSQL 16 | 5432 | **Active schema** |
 | `user-service` | Contacts CRUD, session tokens, zkLogin salts (shared DB) | Node / Express | 3005 | **Partial** (HTTP endpoints live, integration optional) |
-| `transaction-builder` | Tx logging + gas estimate endpoint; tx construction stub | Node / Express / PostgreSQL | 3003 | **Stub** |
+| `transaction-builder` | zkLogin salt service (fetches from Enoki, caches in DB), JWT validation, tx construction | Node / Express / PostgreSQL | 3003 | **Active** |
 | `nlp-service` | Placeholder intent/tool API | Node / Express | 3002 | **Stub** (Gemini called directly by bot) |
 | `zklogin-service` | Placeholder OAuth/prover API | Node / Express | 3004 | **Stub** |
 | `notification-service` | Placeholder notification dispatcher | Node / Express | 3006 | **Stub** |
 | `ts-bot` | TypeScript/Express scaffold with similar handlers | Node 20 / Express | 3001 | **Legacy scaffold** |
-| `nginx` | SSL/TLS termination, reverse proxy, static file serving | nginx | 443/80 | **Planned** |
+| `nginx` | SSL/TLS termination, reverse proxy, static file serving | nginx | 443/80 | **Active** |
 
-> zkLogin functionality uses Mysten Labs hosted APIs (salt/prover). The standalone `zklogin-service` remains a stub to keep the option of self-hosted proving.
+> zkLogin functionality uses Enoki APIs for salt fetching and ZK proof generation. Salts are fetched from Enoki and cached in PostgreSQL for consistent address derivation. The standalone `zklogin-service` remains a stub to keep the option of self-hosted proving.
 
 #### 3.3.2 Service Communication Patterns
 
@@ -159,10 +159,15 @@ Used for event-driven patterns, background processing, and decoupling services.
 | `/api/v1/tx/build`                | POST            | transaction-builder  | Build unsigned transaction   |
 | `/api/v1/tx/estimate-gas`         | POST            | transaction-builder  | Estimate gas for transaction |
 | `/api/v1/tx/status/:digest`       | GET             | transaction-builder  | Get transaction status       |
-| `/api/v1/zklogin/init`            | POST            | zklogin-service      | Initialize OAuth flow        |
-| `/api/v1/zklogin/callback`        | GET             | zklogin-service      | OAuth callback handler       |
-| `/api/v1/zklogin/proof`           | POST            | zklogin-service      | Request ZK proof             |
-| `/api/v1/zklogin/salt`            | POST            | zklogin-service      | Get/generate user salt       |
+| `/api/v1/zklogin/init`            | POST            | zklogin-service (stub) | Initialize OAuth flow (planned) |
+| `/api/v1/zklogin/callback`        | GET             | zklogin-service (stub) | OAuth callback handler (planned) |
+| `/api/v1/zklogin/proof`           | POST            | transaction-builder  | Request ZK proof             |
+| `/api/v1/zklogin/salt`            | POST            | transaction-builder  | Get/generate user salt       |
+| `/api/v1/zklogin/verify-address`  | POST            | transaction-builder  | Verify derived zkLogin address |
+| `/api/ephemeral`                  | POST            | bot-api              | Store ephemeral key for OAuth |
+| `/api/ephemeral/{sessionId}`      | GET             | bot-api              | Retrieve ephemeral key (one-time) |
+| `/api/pending-tx/:id`             | GET             | pending-tx API        | Fetch pending tx (one-time)  |
+| `/api/pending-tx/:id`             | DELETE          | pending-tx API        | Consume pending tx           |
 | `/api/v1/users/session`           | GET/POST        | user-service         | Session management           |
 | `/api/v1/users/contacts`          | GET/POST/DELETE | user-service         | Contact book CRUD            |
 | `/api/v1/users/preferences`       | GET/PUT         | user-service         | User preferences             |
@@ -224,66 +229,81 @@ interface BuildTransactionResponse {
   qrCode: string;
 }
 
-// zklogin-service API Contract
-interface ZkLoginInitRequest {
-  provider: 'google' | 'facebook' | 'twitch' | 'apple';
-  redirectUri: string;
-}
-
-interface ZkLoginInitResponse {
-  authUrl: string;
-  ephemeralPublicKey: string;
-  maxEpoch: number;
-  randomness: string;
-  sessionId: string;
-}
-
-interface ZkProofRequest {
-  sessionId: string;
+// transaction-builder zkLogin API Contract
+interface ZkLoginSaltRequest {
   jwt: string;
+  telegramId?: string;
 }
 
-interface ZkProofResponse {
-  zkLoginAddress: string;
-  proof: PartialZkLoginSignature;
+interface ZkLoginSaltResponse {
   salt: string;
+  provider: string;
+  subject: string;
+  derivedAddress: string;
+  keyClaimName: string;
+}
+
+interface ZkLoginProofRequest {
+  jwt: string;
+  extendedEphemeralPublicKey: string;
+  maxEpoch: number;
+  jwtRandomness: string;
+  salt: string;
+  keyClaimName: string;
+  telegramId?: string;
+}
+
+interface ZkLoginProofResponse {
+  proofPoints: {
+    a: string[];
+    b: string[][];
+    c: string[];
+  };
+  issBase64Details: {
+    value: string;
+    indexMod4: number;
+  };
+  headerBase64: string;
 }
 ```
 
 #### 3.3.4 Data Ownership and Storage Architecture
 
-The AI Copilot Wallet uses a lightweight hybrid storage architecture optimized for a 2GB RAM constraint, security, and user privacy.
+The AI Copilot Wallet uses a Postgres-backed storage architecture for the live deployment, with short-lived in-memory caches for pending transactions and OAuth handoff.
 
-**Backend Storage (Server-Side) - Lightweight Architecture:**
+**Backend Storage (Server-Side) - Current Runtime (PostgreSQL):**
 
-| Service                | Owned Data                                | Database | Purpose              |
-| ---------------------- | ----------------------------------------- | -------- | -------------------- |
-| `user-service`         | Telegram ID ↔ Wallet mappings, contacts   | SQLite3  | Persistent user data |
-| `transaction-builder`  | Transaction history, pending transactions | SQLite3  | Audit trail          |
-| `nlp-service`          | Conversation history cache                | Redis    | Context for NLP      |
-| `notification-service` | Notification preferences, delivery logs   | Redis    | Push notifications   |
+| Service                | Owned Data                                              | Database      | Purpose               |
+| ---------------------- | ------------------------------------------------------- | ------------- | --------------------- |
+| `bot-api`              | Linking sessions, pending tx refs, ephemeral keys       | PostgreSQL 16 | Bot runtime data      |
+| `transaction-builder`  | zkLogin salts (Enoki cached), JWT validation, tx logs   | PostgreSQL 16 | zkLogin + audit       |
+| `user-service`         | Contacts, session tokens (optional)                    | PostgreSQL 16 | User data             |
+| `pending-tx API`       | Pending tx payloads (one-time, TTL)                    | In-memory     | Secure signing links  |
+| `nlp-service`          | Conversation history cache                             | Redis         | Context for NLP       |
+| `notification-service` | Notification preferences, delivery logs                | Redis         | Push notifications    |
 
-**zkLogin Authentication - External Mysten Labs APIs:**
+**zkLogin Authentication - Enoki APIs:**
 
-Instead of running a local zklogin-service with PostgreSQL, we use Mysten Labs' hosted APIs:
+Instead of running a local zklogin-service, the live deployment uses Enoki for salt + proving, with salts cached in PostgreSQL by transaction-builder.
 
-| Service              | URL                                        | Purpose                      |
-| -------------------- | ------------------------------------------ | ---------------------------- |
-| Salt Service         | `https://salt.api.mystenlabs.com/get_salt` | Deterministic salt retrieval |
-| Prover (Testnet/Dev) | `https://prover-dev.mystenlabs.com/v1`     | ZK proof generation (dev)    |
-| Prover (Mainnet)     | `https://prover.mystenlabs.com/v1`         | ZK proof generation (prod)   |
+| Service             | URL                                           | Purpose                        |
+| ------------------- | --------------------------------------------- | ------------------------------ |
+| Enoki Salt + Address | `https://api.enoki.mystenlabs.com/v1/zklogin` | Deterministic salt + address   |
+| Enoki Prover        | `https://api.enoki.mystenlabs.com/v1/zklogin/zkp` | ZK proof generation        |
+
+Enoki calls require `Authorization: Bearer $ENOKI_API_KEY` and the JWT in the `zklogin-jwt` header. The web dApp uses `VITE_ENOKI_API_KEY`, while backend services use `ENOKI_API_KEY`.
 
 **Client-Side Storage (Web dApp):**
 
-| Storage Type        | Data                                                 | Purpose                     |
-| ------------------- | ---------------------------------------------------- | --------------------------- |
-| IndexedDB           | Cached balances, NFT metadata, recent transactions   | Fast reads, offline support |
-| Session Storage     | Ephemeral keys (encrypted), ZK proofs, session state | Security (cleared on close) |
-| Never Local Storage | Any sensitive data                                   | Security best practice      |
+| Storage Type        | Data                                               | Purpose                            |
+| ------------------- | -------------------------------------------------- | ---------------------------------- |
+| IndexedDB           | Cached balances, NFT metadata, recent transactions | Fast reads, offline support        |
+| Session Storage     | OAuth handoff sessionId, zkLogin state, tx params  | Short-lived; cleared after restore |
+| Never Local Storage | Any long-lived secrets                             | Security best practice             |
 
-**SQLite3 Schema (Lightweight Alternative to PostgreSQL):**
+**Legacy SQLite3 Schema (Optional 2GB Footprint Variant):**
 
-SQLite3 provides sufficient data isolation for our use case without the memory overhead of PostgreSQL (~400MB saved). Each service uses its own database file.
+The SQLite3 schema remains for low-memory deployments. The current production deployment uses PostgreSQL 16.
 
 ```sql
 -- users.db (user-service)
@@ -324,7 +344,7 @@ CREATE INDEX idx_txhistory_user ON transaction_history(telegram_user_id);
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│              DATA ARCHITECTURE (2GB RAM Optimized)              │
+│            DATA ARCHITECTURE (Legacy 2GB RAM Variant)           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────────┐     ┌─────────────────────────────────┐   │
@@ -340,9 +360,9 @@ CREATE INDEX idx_txhistory_user ON transaction_history(telegram_user_id);
 │                          └─────────────────────────────────┘   │
 │                                                                 │
 │  ┌─────────────────┐     ┌─────────────────────────────────┐   │
-│  │ telegram-gateway│────▶│   External Mysten Labs APIs     │   │
-│  │ (zkLogin client)│     │   • Salt: salt.api.mystenlabs   │   │
-│  └─────────────────┘     │   • Prover: prover.mystenlabs   │   │
+│  │ transaction-    │────▶│   Enoki zkLogin APIs            │   │
+│  │ builder / web   │     │   • Salt: /v1/zklogin           │   │
+│  └─────────────────┘     │   • Proof: /v1/zklogin/zkp      │   │
 │                          └─────────────────────────────────┘   │
 │                                                                 │
 │  ┌─────────────────┐     ┌─────────────────────────────────┐   │
@@ -353,8 +373,8 @@ CREATE INDEX idx_txhistory_user ON transaction_history(telegram_user_id);
 │          │                                                      │
 │          │               ┌─────────────────────────────────┐   │
 │          └──────────────▶│   Session Storage (Browser)     │   │
-│                          │   • Ephemeral keys (encrypted)  │   │
-│                          │   • ZK proofs (until expiry)    │   │
+│                          │   • OAuth sessionId             │   │
+│                          │   • zkLogin state (no keys)     │   │
 │                          │   • Current session state       │   │
 │                          └─────────────────────────────────┘   │
 │                                                                 │
@@ -550,9 +570,10 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - NLP_SERVICE_URL=http://nlp-service:3002
       - REDIS_URL=redis://redis:6379
-      # External Mysten Labs zkLogin APIs (no local prover needed)
-      - ZKLOGIN_SALT_SERVICE_URL=https://salt.api.mystenlabs.com/get_salt
-      - ZKLOGIN_PROVER_URL=${ZKLOGIN_PROVER_URL:-https://prover-dev.mystenlabs.com/v1}
+      # Enoki zkLogin APIs (salt + proof)
+      - ENOKI_API_KEY=${ENOKI_API_KEY}
+      - ZKLOGIN_SALT_SERVICE_URL=http://transaction-builder:3003/api/v1/zklogin/salt
+      - ZKLOGIN_PROVER_URL=${ZKLOGIN_PROVER_URL:-https://api.enoki.mystenlabs.com/v1/zklogin/zkp}
     depends_on:
       - redis
 
@@ -603,7 +624,7 @@ volumes:
   sqlite_data:
 ```
 
-> **Note:** This configuration removes PostgreSQL and zklogin-service to fit within 2GB RAM. zkLogin uses external Mysten Labs APIs. Data is stored in SQLite3 files on a shared volume.
+> **Note:** This legacy 2GB RAM configuration removes PostgreSQL and uses SQLite; current deployments use PostgreSQL 16. zkLogin uses Enoki for salt/proof, with salts cached in Postgres.
 
 **nginx Configuration (nginx/nginx.conf):**
 
@@ -992,15 +1013,15 @@ Gas estimation follows a conservative approach to prevent transaction failures. 
 
 #### 4.4.1 Purpose and Scope
 
-The web dApp serves as the bridge between the Telegram bot's transaction building capabilities and the user's external wallet. It is intentionally minimal, focusing solely on transaction preview and signing facilitation. The dApp does not store any user data, does not require user accounts or authentication beyond wallet connection, and does not maintain session state between visits.
+The web dApp serves as the bridge between the Telegram bot's transaction building capabilities and the user's external wallet. It is intentionally minimal, focusing solely on transaction preview and signing facilitation. The dApp does not store long-lived user data or require user accounts beyond wallet connection, but it does keep short-lived session state for zkLogin OAuth handoff (sessionId) and pending-tx retrieval.
 
 #### 4.4.2 Transaction Flow
 
-When a user clicks a deep link from Telegram, the following sequence occurs. The first step is URL Parsing where the dApp extracts the serialized transaction and metadata from URL parameters. The second step is Transaction Decoding where the base64 transaction is deserialized and parsed into human-readable components. The third step is Preview Rendering where a comprehensive transaction preview is displayed showing all operations, affected objects, estimated gas cost, recipient addresses with any available labels, and warnings for unusual patterns. The fourth step is Wallet Connection where the user is prompted to connect their wallet if not already connected, with support for Slush and other Sui Wallet Kit compatible wallets. The fifth step is Signature Request where upon user confirmation, the transaction is sent to the connected wallet for signing. The sixth step is Broadcast where after the wallet returns a signature, the signed transaction is broadcast to the Sui network. The seventh step is Result Reporting where the transaction result including success or failure status and transaction digest is displayed to the user and optionally reported back to the Telegram bot via webhook.
+When a user clicks a deep link from Telegram, the following sequence occurs. The first step is URL Parsing where the dApp extracts a one-time pending transaction ID (`tx`) or direct params for manual links; if `tx` is present, it fetches transaction details from `/api/pending-tx/:id` (one-time use) and then cleans the URL. The second step is Transaction Decoding where the base64 transaction is deserialized and parsed into human-readable components. The third step is Preview Rendering where a comprehensive transaction preview is displayed showing all operations, affected objects, estimated gas cost, recipient addresses with any available labels, and warnings for unusual patterns. The fourth step is Wallet Connection where the user is prompted to connect their wallet if not already connected, with support for Slush and other Sui Wallet Kit compatible wallets. If a `sender` param or OAuth callback is detected, the UI locks to zkLogin mode and hides the wallet/zkLogin switcher, showing a "zkLogin Mode" badge. The fifth step is Signature Request where upon user confirmation, the transaction is sent to the connected wallet for signing. The sixth step is Broadcast where after the wallet returns a signature, the signed transaction is broadcast to the Sui network. The seventh step is Result Reporting where the transaction result including success or failure status and transaction digest is displayed to the user and optionally reported back to the Telegram bot via webhook.
 
 #### 4.4.3 Security Considerations
 
-The web dApp implements several security measures. It validates that transaction parameters match expected patterns before displaying previews. It displays clear warnings for transactions involving large amounts or unfamiliar addresses. It implements rate limiting to prevent abuse. It uses Content Security Policy headers to prevent XSS attacks. It does not execute any transaction without explicit user action and does not store any sensitive data in browser storage.
+The web dApp implements several security measures. It validates that transaction parameters match expected patterns before displaying previews. It displays clear warnings for transactions involving large amounts or unfamiliar addresses. It implements rate limiting to prevent abuse. It uses Content Security Policy headers to prevent XSS attacks. It enforces sender matching (connected wallet or derived zkLogin address) before signing and validates nonce/epoch when restoring zkLogin sessions. It does not execute any transaction without explicit user action and does not store any long-lived secrets in browser storage.
 
 ### 4.5 zkLogin Authentication System
 
@@ -1072,7 +1093,7 @@ zkLogin is fundamentally different from MPC or Multisig wallets. Those approache
 
 #### 4.5.13 zkLogin Integration Architecture for AI Copilot Wallet
 
-The AI Copilot Wallet implements zkLogin as an alternative to external wallet connection (Slush). When a user chooses zkLogin authentication, the following flow occurs. The Telegram bot generates an ephemeral key pair and stores the private key in encrypted session storage. The bot presents OAuth login buttons for supported providers (Google, Facebook, Twitch, Apple). The user clicks a provider button and is redirected to complete OAuth login. The OAuth provider returns a JWT to the web dApp callback URL. The web dApp sends the JWT to the salt service to retrieve the user's unique salt. The web dApp sends the JWT, salt, and ephemeral public key to the ZK proving service. The proving service returns a zero-knowledge proof. The web dApp computes the user's zkLogin Sui address. The address and proof are communicated back to the Telegram bot. For subsequent transactions, the bot uses the cached ZK proof and ephemeral key to sign transactions until the session expires.
+The AI Copilot Wallet implements zkLogin as an alternative to external wallet connection (Slush). In the current implementation, the web dApp generates the ephemeral key pair. For send-funds flows it stores the key server-side via `/api/ephemeral` (one-time retrieval, TTL) and keeps only a sessionId in sessionStorage; for linking flows it stores the key in sessionStorage. The OAuth provider returns a JWT to the web dApp callback URL. The web dApp retrieves the ephemeral key, fetches the user's salt from transaction-builder (Enoki-backed), requests a ZK proof from Enoki, derives the zkLogin address, and validates it against any sender parameter before signing. The derived address and proof are used to sign transactions until maxEpoch expires.
 
 #### 4.5.14 zkLogin Key Differentiators
 
@@ -1164,14 +1185,14 @@ Option 3 (Backend - Database): Store a mapping from user identifier (sub) to use
 
 Option 4 (Backend - Derived): Implement a service with a master seed value and derive user salt using key derivation: `HKDF(ikm = seed, salt = iss || aud, info = sub)`. Note: This option does not allow rotation of master seed or change in client ID.
 
-Example request to Mysten Labs salt server:
+Example request to Enoki salt API (used by transaction-builder):
 
 ```bash
-curl -X POST https://salt.api.mystenlabs.com/get_salt \
-  -H 'Content-Type: application/json' \
-  -d '{"token": "$JWT_TOKEN"}'
+curl -X GET https://api.enoki.mystenlabs.com/v1/zklogin \
+  -H "Authorization: Bearer $ENOKI_API_KEY" \
+  -H "zklogin-jwt: $JWT_TOKEN"
 
-# Response: {"salt":"129390038577185583942388216820280642146"}
+# Response: {"data":{"salt":"129390038577185583942388216820280642146","address":"0x..."}}
 ```
 
 **Step 5: Compute zkLogin Address**
@@ -1191,17 +1212,22 @@ import { getExtendedEphemeralPublicKey } from '@mysten/sui/zklogin';
 
 const extendedEphemeralPublicKey = getExtendedEphemeralPublicKey(ephemeralKeyPair.getPublicKey());
 
-// Request proof from proving service
-const proofResponse = await fetch(PROVER_URL, {
+// Enoki expects the raw Sui public key; self-hosted provers may require extendedEphemeralPublicKey.
+
+// Request proof from Enoki (current default)
+const proofResponse = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/zkp', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${ENOKI_API_KEY}`,
+    'zklogin-jwt': jwtToken
+  },
   body: JSON.stringify({
-    jwt: jwtToken,
-    extendedEphemeralPublicKey: extendedEphemeralPublicKey,
-    maxEpoch: maxEpoch.toString(),
-    jwtRandomness: randomness,
-    salt: userSalt,
-    keyClaimName: 'sub'
+    network: 'testnet',
+    ephemeralPublicKey: ephemeralKeyPair.getPublicKey().toSuiPublicKey(),
+    maxEpoch: maxEpoch,
+    randomness: randomness,
+    salt: userSalt
   })
 });
 ```
@@ -1543,23 +1569,22 @@ Use the extended ephemeral public key to generate ZK Proof via the proving servi
 ```typescript
 import axios from 'axios';
 
-// Mysten Labs Testnet Prover (for development)
-// Use https://prover.mystenlabs.com/v1 for Mainnet
-const PROVER_URL = 'https://prover-dev.mystenlabs.com/v1';
+const ENOKI_PROVER_URL = 'https://api.enoki.mystenlabs.com/v1/zklogin/zkp';
 
 const zkProofResult = await axios.post(
-  PROVER_URL,
+  ENOKI_PROVER_URL,
   {
-    jwt: idToken,
-    extendedEphemeralPublicKey: extendedEphemeralPublicKey,
+    network: 'testnet',
+    ephemeralPublicKey: ephemeralKeyPair.getPublicKey().toSuiPublicKey(),
     maxEpoch: maxEpoch,
-    jwtRandomness: randomness,
-    salt: userSalt,
-    keyClaimName: 'sub'
+    randomness: randomness,
+    salt: userSalt
   },
   {
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${ENOKI_API_KEY}`,
+      'zklogin-jwt': idToken
     }
   }
 );
@@ -2538,17 +2563,17 @@ The salt service provides a unique user salt based on JWT claims (iss, aud, sub)
 
 | Strategy                | Description                            | Pros                                 | Cons                                             |
 | ----------------------- | -------------------------------------- | ------------------------------------ | ------------------------------------------------ |
-| Mysten Labs Salt Server | Hosted service using HKDF derivation   | No infrastructure needed, consistent | Requires whitelisting, external dependency       |
+| Enoki Salt API          | Hosted service returning salt + address | No infrastructure needed, consistent | External dependency, API key required             |
 | Self-Hosted Database    | Store sub → salt mapping in PostgreSQL | Full control, simple implementation  | Database maintenance, backup required            |
 | Self-Hosted HKDF        | Derive salt using master seed          | No database needed, deterministic    | Cannot rotate master seed without address change |
 | User-Provided           | User remembers/stores their salt       | Maximum decentralization             | Poor UX, risk of loss                            |
 
-For Mysten Labs salt server integration:
+For Enoki salt integration:
 
 ```bash
-curl -X POST https://salt.api.mystenlabs.com/get_salt \
-  -H 'Content-Type: application/json' \
-  -d '{"token": "$JWT_TOKEN"}'
+curl -X GET https://api.enoki.mystenlabs.com/v1/zklogin \
+  -H "Authorization: Bearer $ENOKI_API_KEY" \
+  -H "zklogin-jwt: $JWT_TOKEN"
 ```
 
 **ZK Proving Service Integration:**
@@ -2557,7 +2582,7 @@ The proving service generates Groth16 zero-knowledge proofs. Two deployment opti
 
 | Option                     | Description                                   | Use Case                            |
 | -------------------------- | --------------------------------------------- | ----------------------------------- |
-| Mysten Labs Hosted (Enoki) | Managed service with auto-scaling             | Production, high availability       |
+| Enoki Hosted               | Managed service with auto-scaling             | Production, high availability       |
 | Self-Hosted Docker         | Run prover-stable and prover-fe-stable images | Custom deployment, data sovereignty |
 
 Proving service request format:
