@@ -550,6 +550,11 @@ function SendFundsPage() {
     return sender ? 'zklogin' : 'wallet';
   });
 
+  // Track if we came from OAuth callback (to lock UI to zkLogin mode)
+  const [isOAuthCallback, setIsOAuthCallback] = useState(() => {
+    return window.location.hash.includes('id_token=');
+  });
+
   // zkLogin state
   const [jwtToken, setJwtToken] = useState(() => {
     // Check URL hash for OAuth callback (id_token in fragment)
@@ -574,12 +579,20 @@ function SendFundsPage() {
   const [maxEpoch, setMaxEpoch] = useState<number | null>(null);
   const [randomness, setRandomness] = useState<string | null>(null);
 
-  // Clear hash after reading JWT from OAuth callback
+  // Clear hash after reading JWT from OAuth callback and force zklogin mode
   useEffect(() => {
     if (window.location.hash.includes('id_token=')) {
       window.history.replaceState({}, '', window.location.pathname + window.location.search);
+      setMode('zklogin'); // Force zklogin mode when coming from OAuth
     }
   }, []);
+
+  // Force zklogin mode when senderParam is present (Telegram-initiated transaction)
+  useEffect(() => {
+    if (senderParam && mode !== 'zklogin') {
+      setMode('zklogin');
+    }
+  }, [senderParam, mode]);
 
   // Fetch pending transaction details from API (secure flow)
   useEffect(() => {
@@ -1204,35 +1217,45 @@ function SendFundsPage() {
               <CardTitle className="text-xl">Send funds</CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Tab Switcher */}
-              <div className="flex gap-2 mb-6" role="group" aria-label="Transfer method">
-                <button
-                  type="button"
-                  aria-pressed={mode === 'wallet'}
-                  onClick={() => setMode('wallet')}
-                  className={`${toggleBaseClasses} ${
-                    mode === 'wallet' ? toggleActiveClasses : toggleInactiveClasses
-                  } flex items-center gap-1.5`}
-                >
-                  {mode === 'wallet' && (
-                    <Check size={16} className="text-toggle-active-foreground" aria-hidden="true" />
-                  )}
-                  Wallet
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={mode === 'zklogin'}
-                  onClick={() => setMode('zklogin')}
-                  className={`${toggleBaseClasses} ${
-                    mode === 'zklogin' ? toggleActiveClasses : toggleInactiveClasses
-                  } flex items-center gap-1.5`}
-                >
-                  {mode === 'zklogin' && (
-                    <Check size={16} className="text-toggle-active-foreground" aria-hidden="true" />
-                  )}
-                  zkLogin
-                </button>
-              </div>
+              {/* Tab Switcher - hidden when coming from OAuth callback or when sender is specified (zkLogin flow) */}
+              {!isOAuthCallback && !senderParam && (
+                <div className="flex gap-2 mb-6" role="group" aria-label="Transfer method">
+                  <button
+                    type="button"
+                    aria-pressed={mode === 'wallet'}
+                    onClick={() => setMode('wallet')}
+                    className={`${toggleBaseClasses} ${
+                      mode === 'wallet' ? toggleActiveClasses : toggleInactiveClasses
+                    } flex items-center gap-1.5`}
+                  >
+                    {mode === 'wallet' && (
+                      <Check size={16} className="text-toggle-active-foreground" aria-hidden="true" />
+                    )}
+                    Wallet
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={mode === 'zklogin'}
+                    onClick={() => setMode('zklogin')}
+                    className={`${toggleBaseClasses} ${
+                      mode === 'zklogin' ? toggleActiveClasses : toggleInactiveClasses
+                    } flex items-center gap-1.5`}
+                  >
+                    {mode === 'zklogin' && (
+                      <Check size={16} className="text-toggle-active-foreground" aria-hidden="true" />
+                    )}
+                    zkLogin
+                  </button>
+                </div>
+              )}
+
+              {/* Show zkLogin badge when tab switcher is hidden */}
+              {(isOAuthCallback || senderParam) && (
+                <div className="mb-6 inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/30 rounded-full text-sm text-primary">
+                  <Check size={14} />
+                  <span>zkLogin Mode</span>
+                </div>
+              )}
 
               {senderParam && (
                 <div className="mb-4 p-3 bg-secondary/50 rounded-lg text-sm">
